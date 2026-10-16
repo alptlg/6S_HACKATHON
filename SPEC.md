@@ -40,12 +40,17 @@ The user uploads a CSV file containing ambulance response records. Each row repr
 ## 4. The statistics, and why (rubric: valid QC analysis 25)
 Say the method in words before any code exists. Load the `stats-first-steering` skill first.
 - **Method:** Use an Individuals and Moving Range (I-MR) control chart to monitor ambulance response times in chronological order. Calculate the mean response time, moving ranges, and three-sigma control limits estimated from the average moving range. Additionally, calculate the median, standard deviation, and 90th and 95th percentiles to evaluate response-time performance across city zones. Flag observations outside the control limits and compare response-time distributions between zones.
+  - **Response time (decided):** `response_time_min = (arrival_time - dispatch_time)` in minutes, the dispatch-to-on-scene time the prompt names. `call_received` is logged but not charted.
+  - **Skewed data (decided):** response times are right-skewed, so the I-MR chart is computed on `ln(response_time_min)`: centerline = mean of the logs, limits = mean +/- 2.66 x average moving range of the logs. Centerline and limits are converted back to minutes with `exp()` for display (the centerline is then the geometric mean).
+  - **Zone flag (decided):** a zone is flagged "needs attention" if ANY of its calls is above the upper control limit, OR its 90th-percentile response time is above the 8-minute target (the NFPA 1710 benchmark: 8 minutes for 90% of advanced life support calls). Percentiles use NumPy's default linear method.
 
 - **Why it fits the use case:** I-MR control charts help EMS supervisors identify unusual response-time variation and potential process instability, while percentiles and zone comparisons reveal slow responses that monthly averages may conceal.
 
 - **Assumptions and how the tool checks them:** Response times must be nonnegative, timestamps must be chronologically valid, and incidents must be ordered by call time. Control charts assume a reasonably stable baseline process with comparable observations and limited serial dependence. The tool checks missing values, invalid timestamps, duplicate incidents, chronological ordering, and extreme observations. It displays time-series plots and distributions to assess stability, skewness, and possible changes in operating conditions. Control charts are calculated separately for sufficiently populated zones and comparable priority groups when appropriate. If assumptions are not adequately supported, the tool displays a warning rather than presenting control-limit results as definitive.
 
 - **Known-answer check:** For five chronological response times of [6, 8, 7, 9, 10] minutes, the mean is 8.0 minutes. The consecutive moving ranges are [2, 1, 2, 1], giving an average moving range of 1.5 minutes. Using the standard I-MR chart constant of 2.66, the Individuals chart has a centerline of 8.0 minutes, an upper control limit of 11.99 minutes, and a lower control limit of 4.01 minutes. The Python statistical function must reproduce these values within rounding tolerance.
+  - **Log-scale chart (the one the tool uses):** for the same [6, 8, 7, 9, 10] minutes, ln = [1.7918, 2.0794, 1.9459, 2.1972, 2.3026]; mean of logs = 2.0634; moving ranges = [0.2877, 0.1335, 0.2513, 0.1054], average 0.1945. Log limits: UCL = 2.0634 + 2.66 x 0.1945 = 2.5807, LCL = 1.5461. In minutes: centerline 7.87, UCL 13.21, LCL 4.69. Moving Range chart: UCL = 3.267 x 0.1945 = 0.6353 (log units), LCL = 0.
+  - **90th percentile:** of [6, 8, 7, 9, 10] = 9.6 minutes, which is above 8, so this zone would be flagged.
 
 Fixed for every team:
 - The statistic lives in **one plain, tested function** (`app/qc.py` or `app/qc.R`). The API, app or
@@ -55,9 +60,7 @@ Fixed for every team:
 
 ## 5. Delivery (rubric: working tool 25)
 
-## 5. Delivery (rubric: working tool 25)
-
-- **Stack:** Python REST API using FastAPI, with Pandas and NumPy for statistical analysis and a browser-based dashboard for displaying results. The application will support CSV uploads, ambulance incident logging, statistical process control analysis, and identification of unusual response times across city zones.
+- **Stack:** Python REST API using FastAPI, with Pandas and NumPy for statistical analysis and a browser-based dashboard for displaying results. **Dashboard (decided):** FastAPI serves one plain HTML page that draws the charts with Chart.js loaded from a CDN, so no Node.js or React build is needed and the API and page deploy as one app. The application will support CSV uploads, ambulance incident logging, statistical process control analysis, and identification of unusual response times across city zones.
 
 - **Starting demo:** `demos/fastapi/`, copied into `app/`.
 
@@ -71,8 +74,6 @@ Fixed for every team:
 - A small tool that runs beats a large tool that does not.
 
 ## 6. Outputs
-- **What the user sees:** 
-## 6. Outputs
 
 - **What the user sees:** An interactive emergency response monitoring dashboard displaying:
 
@@ -82,16 +83,13 @@ Fixed for every team:
 
   3. **City Zone Comparison:** Bar charts comparing response-time statistics across city zones to help identify areas experiencing consistently longer delays.
 
-  4. **Zone Alerts:** A list of zones showing statistically unusual response-time behavior, with warning indicators identifying areas that require further investigation.
+  4. **Zone Alerts:** A list of zones showing statistically unusual response-time behavior, with warning indicators identifying areas that require further investigation. A zone is flagged by the rule in section 4 (a call above the UCL, or 90th percentile above 8 minutes), and the alert says which of the two triggered it.
 
   5. **Incident Logging:** A form allowing dispatchers to enter new emergency incidents, with response times automatically calculated from timestamps.
 
   6. **Data Upload:** An interface allowing users to upload CSV files containing historical ambulance response records for analysis.
 
   7. **Operational Interpretation:** Brief explanations accompanying each statistical result to help EMS supervisors understand what the numbers mean and when further investigation is appropriate.
-
-
-## 7. Test datasets and codebook (rubric: demo 10, datasets 5, codebook 5)
 
 
 ## 7. Test datasets and codebook (rubric: demo 10, datasets 5, codebook 5)
@@ -111,21 +109,11 @@ Each dataset will contain incident IDs, city zones, emergency priority levels, c
 
 A separate `data/README.md` codebook will explain every variable, its units, how the synthetic data was generated, and how an EMS center could collect the equivalent information in practice.
 
-
-2-3 small CSVs in `data/`, invented but shaped like real field data, each showing one behavior.
-`data/README.md` is the codebook: every file, every column with units, and what it would take to
-collect this data for real.
-- **Datasets:** FILL IN. Example: "`in_control.csv`, `planted_shift.csv` (mean shifts at row 40), `edge_case.csv` (one subgroup)"
-
 ## 8. Documentation and reproducibility (rubric: docs 10, public repo 5)
 - `README.md` says what the tool does, for whom, every input and parameter, how to run it in one
   command, and walks through the demo on each test dataset.
 - Public GitHub repo; a fresh clone runs `testme` and the tests pass with no extra steps.
 - Submit on Devpost: the repo link plus a demo.
-
-## 9. Out of scope
-What we will NOT build, so nobody (human or agent) builds it by accident.
-- Default: logins, databases, real customer data, a second statistic before the first one is tested.
 
 ## 9. Out of scope
 
