@@ -8,12 +8,13 @@ HTML dashboard with Chart.js, statistics in `app/qc.py` (log I-MR, 95% CI, Cpk a
 1710 8-minute target), three synthetic year-long scenarios, a CLI in `app/cli.py`, deployment
 to **Posit Connect**, no logins and no database.
 
-**Status (Sat Oct 17):** Steps 1-3 are built. `pytest tests` gives 16 passed. The deploy
-workflow's smoke test passes locally. Next: confirm a green deploy (Step 4), then Step 5.
+**Status (Sat Oct 17):** Steps 1-3 and docs (Step 5 README/demo/codebook) are aligned with the
+shipped dashboard. `pytest tests` gives 16 passed. Live URL on Connect (Step 4). Submit Devpost
+(H-08) and check in `CONTRACT.yaml` when done.
 
 ---
 
-## Step 1 — `data/` and the codebook **(CONTRACT H-02)** — built, codebook out of date
+## Step 1 — `data/` and the codebook **(CONTRACT H-02)** — built
 
 Three synthetic CSVs, 24,000 calls each, 2026-01-01 to 2026-12-31, 5 boroughs:
 
@@ -23,9 +24,7 @@ Three synthetic CSVs, 24,000 calls each, 2026-01-01 to 2026-12-31, 5 boroughs:
 | `highDelayAlex_2026_24000_synthetic.csv` | heavy delays citywide | geo mean 19.58, p90 48.40, Cpk −0.43 |
 | `noDelayAlexData_2026_24000_synthetic.csv` | fast, optimal conditions | geo mean 7.71, p90 16.30, Cpk 0.02 |
 
-**To do:** `data/README.md` still describes the old files (`zone_patterns.csv`,
-`minimal_input.csv`, `simulate.py`). Rewrite it for these three files: every column and its
-units, how the data was generated, and how a real CAD system would collect it.
+Codebook: [`data/README.md`](data/README.md).
 
 ---
 
@@ -89,12 +88,14 @@ Python files, `requirements.txt` or `manifest.json`. It:
 
 ## Step 5 — Demo walkthrough and docs **(CONTRACT H-05, H-07, H-08)**
 
-- `demo/README.md`: for each scenario, what to click, the numbers shown, and one line on how
-  to read them.
-- Top-level `README.md`: user, inputs, live URL, links to `app/README.md` and `LR.md`.
+- [`demo/README.md`](demo/README.md): each scenario — live Connect URL, clicks, CLI spot-checks,
+  one-line interpretation.
+- [`README.md`](README.md): tool front door — user, inputs, live URL, links to `demo/`, `app/`,
+  `SPEC.md`, `LR.md`.
 - Fresh clone: `pip install -r app/requirements.txt && pytest tests` passes.
-- Update `CONTRACT.yaml`: every task is still `todo`.
-- Submit on Devpost before **Oct 17, 1 PM ET** (on-campus).
+- Update `CONTRACT.yaml` task results when the team checks in.
+- Submit on Devpost: repo + https://connect.systems-apps.com/content/1d6d6d65-03cd-48d8-b0ac-8a07b1f3e27a/
+  before **Oct 17, 1 PM ET** (on-campus).
 
 ---
 

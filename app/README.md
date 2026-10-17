@@ -14,6 +14,11 @@ module, `qc.py`:
 
 All data is synthetic; see `data/README.md`.
 
+**Live (Posit Connect):**  
+https://connect.systems-apps.com/content/1d6d6d65-03cd-48d8-b0ac-8a07b1f3e27a/
+
+Judge walkthrough: [`demo/README.md`](../demo/README.md).
+
 ---
 
 ## Run it

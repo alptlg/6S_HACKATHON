@@ -1,7 +1,8 @@
 # Proposal: NYC EMS Response Time Dashboard (team Chiblings)
 
-Status: **built.** `SPEC.md`, `RM.md` and `app/README.md` describe the same tool with the same
-names. Where this file and the code disagree, the code is right and this file is out of date.
+Status: **built.** `SPEC.md`, `RM.md`, `README.md`, `data/README.md`, `demo/README.md`, and
+`app/README.md` describe the same tool with the same names. Where this file and the code disagree,
+the code is right and this file is out of date.
 
 ---
 

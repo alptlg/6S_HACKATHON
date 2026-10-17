@@ -15,7 +15,7 @@ same names for every variable.
 - **Team name:** Chiblings
 - **Track:** On-Campus
 - **Prompt we chose:** Prompt #2, Health Systems Emergency Response
-- **Our public repo:** https://github.com/alptlg/6S_HACKATHON
+- **Our public repo:** https://github.com/alptlg/6s_hackathon
 
 ## 2. User and use case (rubric: scope 5, user and use case 5)
 - **User:** The EMS / 911 operations supervisor who monitors ambulance response times across
@@ -166,7 +166,7 @@ Fixed for every team:
 
 ## 8. Documentation and reproducibility (rubric: docs 10, public repo 5)
 - `README.md` says what the tool does, for whom, every input and parameter, how to run it in one
-  command, and walks through the demo on each test dataset.
+  command, the live Connect URL, and links `demo/README.md` (walkthrough on each scenario).
 - Public GitHub repo; a fresh clone runs `testme` and the tests pass with no extra steps.
 - Submit on Devpost: the repo link plus a demo.
 

@@ -50,13 +50,13 @@ Other people — cities, companies, and researchers — already built big system
 
 **What others did:** Commercial tools (especially **FirstWatch**) pull **CAD** timestamps and compare each call to **rules** — often **by geographic zone** (beat, sub-zone, urban vs rural). When a call is **late**, the system can **alert** supervisors and support **contract** reporting between a city and an ambulance company [1]–[3].
 
-**Relation to our work:** Our user is an **EMS dispatch supervisor** watching **city zones**. We do not connect to real CAD; we use **CSV uploads** and a **logging form**. The *idea* is the same: **per-incident times**, **grouped by zone**, **flag what looks wrong**.
+**Relation to our work:** Our user is an **EMS dispatch supervisor** watching the **five NYC boroughs**. We do not connect to real CAD; we use **built-in scenarios**, **CSV upload**, and the **CLI/API**. The *idea* is the same: **per-incident times**, **grouped by borough**, **flag unstable or incapable processes**.
 
-**How we can use it:**
+**How we use it:**
 
-- Name zones in `data/` like real reports (North, South, Urban, Rural).
-- In `demo/README.md`, say our **zone alerts** play the same role as FirstWatch’s “compliance by zone” — but with **I-MR** instead of only “late yes/no.”
-- Optional: cite FirstWatch in README as industry context (not as our code source).
+- Borough names in `data/` match real reporting (Queens, Brooklyn, …).
+- In [`demo/README.md`](demo/README.md), the live dashboard shows **I-MR**, **p90**, and **Cpk vs 8 min** per borough — Six Sigma process view, not only “late yes/no.”
+- [`README.md`](README.md) cites FirstWatch-style tools as industry context (not as our code source).
 
 ---
 
@@ -68,9 +68,9 @@ Other people — cities, companies, and researchers — already built big system
 
 **How we can use it:**
 
-- In the dashboard, show **both** mean and p90/p95 with one sentence: “Average looks okay, but p90 shows many slow calls.”
-- In `high_delay_operations.csv`, plant delays so **p90 jumps** in South/West while mean moves less — a story judges recognize from [4] and [10].
-- Optionally add a **contract-style** line in interpretation text (e.g. “% of calls under 8 minutes”) without claiming real NFPA compliance unless we define it clearly in the codebook.
+- In the dashboard, show **both** mean and p90 with tiles and histograms: “Average looks okay, but p90 shows the slow tail.”
+- The **High Delay** scenario (`highDelayAlex_2026_24000_synthetic.csv`) raises **p90** and **geo mean** citywide — a story judges recognize from [4] and [10].
+- **Cpk** against the 8-minute USL makes the NFPA-style target explicit in `app/qc.py` (see `SPEC.md`).
 
 ---
 
@@ -124,7 +124,7 @@ We are **not** rebuilding FirstWatch or NEMSIS. We are a **transparent, reproduc
 |------|----------------------|
 | **H-02** Data | Shape CSVs and codebook like [10]; plant zone delays like contract reports |
 | **H-03** `app/qc.py` | Justify I-MR via [11]; known-answer check stays in SPEC |
-| **H-04–H-05** Demo | Interpret charts like [4] (mean vs p90); zone bars like [10] |
+| **H-04–H-05** Demo | Interpret charts like [4] (mean vs p90); borough comparison like [10] — see [`demo/README.md`](demo/README.md) |
 | **H-07** README | Short “Related work” paragraph pointing to [2], [11], [9] |
 | **H-06** Deploy | Same as any web tool; no citation required |
 
@@ -271,4 +271,4 @@ flowchart TD
 | Validate & compute | `app/qc.py` |
 | Show charts & alerts | FastAPI + dashboard (`app/`) |
 | Prove statistics | `tests/` + SPEC known-answer |
-| Explain the process | This `LR.md` map + `demo/README.md` (H-05) |
+| Explain the process | This `LR.md` map + [`demo/README.md`](demo/README.md) on the Connect URL (H-05) |
