@@ -7,7 +7,16 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <!-- Posit Connect serves the app under /content/{guid}/ — set base so static/ and api/ resolve correctly -->
+  <base href="/" />
+  <script>
+    (function () {
+      var path = window.location.pathname;
+      if (!path.endsWith("/")) path += "/";
+      document.querySelector("base").setAttribute("href", path);
+    })();
+  </script>
+  <link rel="stylesheet" href="static/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -74,6 +83,6 @@
     <span>Crunching SPC stats…</span>
   </div>
 
-  <script src="/static/dashboard.js"></script>
+  <script src="static/dashboard.js"></script>
 </body>
 </html>

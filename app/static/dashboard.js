@@ -222,7 +222,7 @@ async function loadRegion(regionId) {
   setLoading(true);
 
   try {
-    const res = await fetch(`/api/analyze/${regionId}`);
+    const res = await fetch(`api/analyze/${regionId}`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || "Could not load region data");
