@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "locale": "English_United States.1252",
+  "metadata": {
+    "appmode": "python-fastapi",
+    "entrypoint": "main:app"
+  },
+  "python": {
+    "version": "3.12.14",
+    "package_manager": {
+      "name": "pip",
+      "version": "26.2.1",
+      "package_file": "requirements.txt"
+    }
+  },
+  "environment": {
+    "python": {
+      "requires": "~=3.12.0"
+    }
+  },
+  "files": {
+    "requirements.txt": {
+      "checksum": "2bb1d672c622e78eb19c25429dc2b088"
+    },
+    ".python-version": {
+      "checksum": "c3052f53ccf07991da5591cab5ee1274"
+    },
+    "README.md": {
+      "checksum": "dbaf95b62d44c8eff7bbf00d96db42b4"
+    },
+    "__init__.py": {
+      "checksum": "8f26970ce81ab662af640c5836a00a0a"
+    },
+    "deployme.sh": {
+      "checksum": "2280a04110ea3cf918d1d4bcdb323282"
+    },
+    "main.py": {
+      "checksum": "c42772f27b75bb8d284c6ebe799817fd"
+    },
+    "manifestme.sh": {
+      "checksum": "3e0dd922f655b0cb37fdebab42a29b64"
+    },
+    "qc.py": {
+      "checksum": "21893603287d8f61a833f498579ef453"
+    },
+    "static/dashboard.js": {
+      "checksum": "9feaa8d3d9861bb20e948a07f244cc2c"
+    },
+    "static/index.html": {
+      "checksum": "8415c07361eab97605164a134961b82d"
+    },
+    "static/styles.css": {
+      "checksum": "d133366f3ef3969fe8c44225fc6ce9e8"
+    },
+    "testme.ps1": {
+      "checksum": "c8953080060938fb752d01298fca2e11"
+    },
+    "testme.sh": {
+      "checksum": "94fb6e11c22e39e63b7c0b178ca5d276"
+    }
+  }
+}

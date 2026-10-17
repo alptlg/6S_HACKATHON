@@ -1,0 +1,118 @@
+# =============================================================================
+# Deploy Chiblings FastAPI app (app/) to Posit Connect.
+# =============================================================================
+# APP_DIR holds main.py, qc.py, manifest.json, requirements.txt, .python-version
+# Entrypoint: main:app  (rsconnect write-manifest fastapi . --entrypoint main:app)
+# REPO SECRETS: CONNECT_SERVER, CONNECT_API_KEY (event staff — never commit)
+# =============================================================================
+name: Deploy FastAPI to Posit Connect
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**.py'
+      - '**/requirements.txt'
+      - '**/manifest.json'
+      - '**/.python-version'
+      - '.github/workflows/deploy-fastapi.yml'
+      - '.github/scripts/connect-publish-async.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-fastapi
+  cancel-in-progress: false
+
+env:
+  APP_DIR: 'app'
+  CONTENT_NAME: ${{ github.repository_owner }}-${{ github.event.repository.name }}-fastapi
+  CONTENT_TITLE: Chiblings EMS Response Monitor
+  HEALTH_PATH: '/health'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the committed manifest (never regenerated here)
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          test -f manifest.json    || { echo "::error::No manifest.json in ${APP_DIR}. On your machine run: rsconnect write-manifest fastapi . --entrypoint main:app  -- then commit it."; exit 1; }
+          test -f requirements.txt || { echo "::error::No requirements.txt in ${APP_DIR}."; exit 1; }
+          test -f .python-version  || { echo "::error::No .python-version in ${APP_DIR}. Create it holding the Python version in manifest.json, e.g. 3.12"; exit 1; }
+          MODE=$(jq -r '.metadata.appmode' manifest.json)
+          ENTRY=$(jq -r '.metadata.entrypoint // ""' manifest.json)
+          MPY=$(jq -r '.python.version // ""' manifest.json)
+          WANT=$(tr -d ' \r\n' < .python-version)
+          echo "manifest: appmode=${MODE} entrypoint=${ENTRY} python=${MPY} (.python-version=${WANT})"
+          [ "$MODE" = "python-fastapi" ] || { echo "::error::manifest appmode is '${MODE}', expected python-fastapi. Re-write with: rsconnect write-manifest fastapi . --entrypoint main:app"; exit 1; }
+          [ -n "$ENTRY" ] || { echo "::error::manifest has no entrypoint. Re-write with --entrypoint main:app"; exit 1; }
+          case "$MPY" in
+            "$WANT"|"$WANT".*) ;;
+            *) echo "::error::manifest says Python ${MPY} but .python-version says ${WANT}. Make them agree, then re-write the manifest on your machine."; exit 1 ;;
+          esac
+          if grep -q $'\r' manifest.json; then
+            echo "::error::manifest.json has Windows line endings. Fix .gitattributes and re-write the manifest."
+            exit 1
+          fi
+          case "$(jq -r '.locale // ""' manifest.json)" in
+            ""|C|C.UTF-8|POSIX) echo "::warning::manifest locale looks like a CI runner's. Write the manifest on your own machine, not in Actions." ;;
+          esac
+          echo "ENTRY=${ENTRY}" >> "$GITHUB_ENV"
+
+      - name: Set up Python (version from .python-version)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: ${{ env.APP_DIR }}/.python-version
+          cache: pip
+          cache-dependency-path: ${{ env.APP_DIR }}/requirements.txt
+
+      - name: Smoke test -- install requirements and import the app
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          set -euo pipefail
+          python -X utf8 -m pip install -r requirements.txt
+          python -X utf8 -c "import importlib, sys; m, o = sys.argv[1].split(':'); getattr(importlib.import_module(m), o); print('imported', sys.argv[1])" "$ENTRY"
+
+      - name: Check the two repo secrets exist
+        env:
+          CONNECT_SERVER: ${{ secrets.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ secrets.CONNECT_API_KEY }}
+        run: |
+          [ -n "$CONNECT_SERVER" ]  || { echo "::error::Repo secret CONNECT_SERVER is not set (Settings > Secrets and variables > Actions)."; exit 1; }
+          [ -n "$CONNECT_API_KEY" ] || { echo "::error::Repo secret CONNECT_API_KEY is not set (Settings > Secrets and variables > Actions)."; exit 1; }
+          echo "Both secrets are present."
+
+      - name: Publish to Posit Connect
+        id: publish
+        timeout-minutes: 10
+        env:
+          CONNECT_SERVER: ${{ secrets.CONNECT_SERVER }}
+          CONNECT_API_KEY: ${{ secrets.CONNECT_API_KEY }}
+          BUNDLE_DIR: ${{ env.APP_DIR }}
+          POLL_BUDGET_SECONDS: '120'
+        run: bash .github/scripts/connect-publish-async.sh
+
+      - name: Check the app answers (green is not live)
+        env:
+          CONNECT_API_KEY: ${{ secrets.CONNECT_API_KEY }}
+          CONTENT_URL: ${{ steps.publish.outputs.content_url }}
+        run: |
+          set -euo pipefail
+          URL="${CONTENT_URL%/}${HEALTH_PATH}"
+          echo "Checking ${URL}"
+          for i in $(seq 1 20); do
+            CODE=$(curl -sS -L -o /dev/null -w '%{http_code}' -H "Authorization: Key ${CONNECT_API_KEY}" "$URL" || echo 000)
+            echo "  attempt ${i}: HTTP ${CODE}"
+            if [ "$CODE" = "200" ]; then echo "LIVE: ${URL}"; exit 0; fi
+            sleep 15
+          done
+          echo "::error::${HEALTH_PATH} never answered 200. Open the app's Logs tab in Connect and read the last error."
+          exit 1

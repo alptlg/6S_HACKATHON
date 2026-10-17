@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Chiblings EMS Response Monitor</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>EMS Response Monitor</h1>
+    <p class="subtitle">Dispatch supervisor view — log-scale I-MR on dispatch-to-arrival times</p>
+  </header>
+
+  <section class="panel">
+    <h2>Upload incident CSV</h2>
+    <p class="help">Use files from <code>data/</code> (e.g. normal_operations.csv) or your own CAD export.</p>
+    <input type="file" id="csvFile" accept=".csv" />
+    <button type="button" id="btnAnalyze">Analyze upload</button>
+  </section>
+
+  <section class="panel">
+    <h2>Log one incident (session)</h2>
+    <form id="incidentForm" class="grid-form">
+      <label>Zone <input name="zone" required placeholder="North" /></label>
+      <label>Priority
+        <select name="priority">
+          <option>High</option>
+          <option>Medium</option>
+          <option>Low</option>
+        </select>
+      </label>
+      <label>Call received <input name="call_received" required placeholder="2026-10-01 08:00:00" /></label>
+      <label>Dispatch <input name="dispatch_time" required placeholder="2026-10-01 08:02:00" /></label>
+      <label>Arrival <input name="arrival_time" required placeholder="2026-10-01 08:08:00" /></label>
+      <button type="submit">Add &amp; analyze session</button>
+      <button type="button" id="btnClearSession">Clear session</button>
+    </form>
+  </section>
+
+  <div id="warnings" class="warnings hidden"></div>
+  <div id="summary" class="summary cards hidden"></div>
+  <div id="alerts" class="panel hidden"></div>
+
+  <section class="panel chart-panel hidden" id="iChartPanel">
+    <h2>Individuals chart (minutes)</h2>
+    <p class="help">Points outside the red limits may indicate special-cause delay.</p>
+    <canvas id="iChart"></canvas>
+  </section>
+
+  <section class="panel chart-panel hidden" id="mrChartPanel">
+    <h2>Moving range chart (log units)</h2>
+    <canvas id="mrChart"></canvas>
+  </section>
+
+  <section class="panel chart-panel hidden" id="zoneChartPanel">
+    <h2>Zone comparison (90th percentile, minutes)</h2>
+    <p class="help">Dashed line = 8 min target (NFPA-style benchmark in SPEC).</p>
+    <canvas id="zoneChart"></canvas>
+  </section>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

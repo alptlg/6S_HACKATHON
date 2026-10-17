@@ -1,0 +1,197 @@
+let iChart = null;
+let mrChart = null;
+let zoneChart = null;
+
+function show(el) {
+  el.classList.remove("hidden");
+}
+
+function renderAnalysis(data) {
+  const warnEl = document.getElementById("warnings");
+  if (data.warnings && data.warnings.length) {
+    warnEl.innerHTML = "<strong>Notes:</strong><ul>" + data.warnings.map((w) => `<li>${w}</li>`).join("") + "</ul>";
+    show(warnEl);
+  } else {
+    warnEl.classList.add("hidden");
+  }
+
+  const sumEl = document.getElementById("summary");
+  if (data.summary) {
+    const s = data.summary;
+    const items = [
+      ["Mean (min)", s.mean],
+      ["Median", s.median],
+      ["Std dev", s.stdev],
+      ["90th %ile", s.p90],
+      ["95th %ile", s.p95],
+      ["N", s.n],
+    ];
+    sumEl.innerHTML = items
+      .map(
+        ([label, val]) =>
+          `<div class="card"><div class="label">${label}</div><div class="value">${Number(val).toFixed(2)}</div></div>`
+      )
+      .join("");
+    show(sumEl);
+  }
+
+  const alertsEl = document.getElementById("alerts");
+  if (data.zone_alerts && data.zone_alerts.length) {
+    alertsEl.innerHTML =
+      "<h2>Zone alerts</h2>" +
+      data.zone_alerts.map((a) => `<div class="alert-item">${a.message}</div>`).join("");
+  } else {
+    alertsEl.innerHTML = "<h2>Zone alerts</h2><p>No zones flagged under current rules.</p>";
+  }
+  show(alertsEl);
+
+  if (data.limits_log && data.chart_points && data.chart_points.length) {
+    renderIChart(data);
+    renderMrChart(data);
+    show(document.getElementById("iChartPanel"));
+    show(document.getElementById("mrChartPanel"));
+  }
+
+  if (data.zone_summaries && data.zone_summaries.length) {
+    renderZoneChart(data.zone_summaries);
+    show(document.getElementById("zoneChartPanel"));
+  }
+}
+
+function renderIChart(data) {
+  const pts = data.chart_points;
+  const lim = data.limits_log;
+  const labels = pts.map((p) => p.call_received.slice(0, 16));
+  const values = pts.map((p) => p.response_min);
+  const colors = pts.map((p) => (p.individual_ooc ? "#c0392b" : "#2980b9"));
+
+  const datasets = [
+    {
+      label: "Response (min)",
+      data: values,
+      pointBackgroundColor: colors,
+      borderColor: "#2980b9",
+      tension: 0.1,
+    },
+    {
+      label: "UCL",
+      data: pts.map(() => lim.ucl_min),
+      borderColor: "#c0392b",
+      borderDash: [6, 4],
+      pointRadius: 0,
+    },
+    {
+      label: "Center",
+      data: pts.map(() => lim.center_min),
+      borderColor: "#27ae60",
+      borderDash: [4, 4],
+      pointRadius: 0,
+    },
+    {
+      label: "LCL",
+      data: pts.map(() => lim.lcl_min),
+      borderColor: "#c0392b",
+      borderDash: [6, 4],
+      pointRadius: 0,
+    },
+  ];
+
+  if (iChart) iChart.destroy();
+  iChart = new Chart(document.getElementById("iChart"), {
+    type: "line",
+    data: { labels, datasets },
+    options: { responsive: true, scales: { y: { title: { display: true, text: "Minutes" } } } },
+  });
+}
+
+function renderMrChart(data) {
+  const pts = data.chart_points.filter((p) => p.moving_range_log != null);
+  const lim = data.limits_log;
+  const labels = pts.map((p) => p.call_received.slice(0, 16));
+  const values = pts.map((p) => p.moving_range_log);
+  const colors = pts.map((p) => (p.mr_ooc ? "#c0392b" : "#8e44ad"));
+
+  if (mrChart) mrChart.destroy();
+  mrChart = new Chart(document.getElementById("mrChart"), {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: "MR (log)",
+          data: values,
+          pointBackgroundColor: colors,
+          borderColor: "#8e44ad",
+        },
+        {
+          label: "MR UCL",
+          data: pts.map(() => lim.mr_ucl_log),
+          borderColor: "#c0392b",
+          borderDash: [6, 4],
+          pointRadius: 0,
+        },
+      ],
+    },
+    options: { responsive: true },
+  });
+}
+
+function renderZoneChart(zones) {
+  const labels = zones.map((z) => z.zone);
+  const p90 = zones.map((z) => z.p90);
+  const target = zones.map(() => 8);
+
+  if (zoneChart) zoneChart.destroy();
+  zoneChart = new Chart(document.getElementById("zoneChart"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [
+        { label: "90th percentile (min)", data: p90, backgroundColor: "#3498db" },
+        { label: "8 min target", data: target, type: "line", borderColor: "#e67e22", pointRadius: 0 },
+      ],
+    },
+    options: { responsive: true },
+  });
+}
+
+async function analyzeFile() {
+  const input = document.getElementById("csvFile");
+  if (!input.files.length) {
+    alert("Choose a CSV file first.");
+    return;
+  }
+  const form = new FormData();
+  form.append("file", input.files[0]);
+  const res = await fetch("/api/analyze", { method: "POST", body: form });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.detail || "Analyze failed");
+    return;
+  }
+  renderAnalysis(await res.json());
+}
+
+document.getElementById("btnAnalyze").addEventListener("click", analyzeFile);
+
+document.getElementById("incidentForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd.entries());
+  const res = await fetch("/api/incident", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.detail || "Log failed");
+    return;
+  }
+  renderAnalysis(await res.json());
+});
+
+document.getElementById("btnClearSession").addEventListener("click", async () => {
+  await fetch("/api/session", { method: "DELETE" });
+  alert("Session cleared.");
+});
