@@ -94,6 +94,26 @@ Say the method in words before any code exists. Load the `stats-first-steering` 
   (traffic + workload or resource), or Unexplained special cause (abnormal but no condition
   flagged: manual incident review).
 
+- **Two descriptive charts (added 2026-10-17).** These two describe; they never create a status.
+  Nothing they compute feeds the rules above, and adding them must leave every zone's status
+  unchanged.
+  1. **Box plot, by day of week (or by month).** Compares the median, the spread and the unusually
+     long calls across periods. Drawn on `ln(response_time_min)`, because on raw minutes Tukey's
+     upper fence falls inside the long right tail and nearly every long call would look like an
+     outlier; the axis is labelled in minutes (`exp` of the log values). Quartiles use linear
+     interpolation (type 7, the NumPy default; R's `boxplot` and Excel's `QUARTILE.INC` agree).
+     The fences are Tukey's, `Q1 - 1.5*IQR` and `Q3 + 1.5*IQR`, computed **on the log scale**; a
+     call is an outlier only beyond a fence. Whiskers reach the most extreme call inside the
+     fences. A box needs at least 5 calls, and a period that yields one box is reported as "not a
+     comparison" instead of being drawn.
+  2. **Weekday x hour heatmap.** One cell per weekday and hour (7 x 24 = 168) for one zone in the
+     chosen period. The cell value is the **p90** in minutes, never the mean: with a right-skewed
+     distribution one 60-minute call moves a mean and does not move a p90. A cell with fewer than
+     20 calls reads "not enough calls" and is left uncoloured, never 0 and never a number, because
+     an empty cell means "no evidence", not "fast". The hour axis uses the same `time_of_day` bins
+     as the rest of the tool, and the cells are built from the same cleaned rows as everything
+     else, so the cell counts add up to the calls in the period.
+
 - **Why it fits the use case:** The I-MR chart separates one unusually long response (a single
   point above the limit: Watch at most) from a borough whose whole process has shifted (many
   points above the limit, a run of high days, or a significantly higher p90: Needs attention).
@@ -125,6 +145,26 @@ Say the method in words before any code exists. Load the `stats-first-steering` 
   - **Response time from timestamps:** dispatch 17:42:10, on scene 17:51:55 -> 9.75 minutes.
   - **Workload:** calls at 10:00, 10:05, 10:14, 10:20 in one zone -> `recent_call_volume`
     = 0, 1, 2, 2 (the 10:00 call is 20 minutes before 10:20).
+  - **Box plot (by day of week or month):** the sorted calls [6, 7, 8, 9, 40] give, in minutes,
+    Q1 = 7.0, median = 8.0 and Q3 = 9.0 by linear interpolation. The chart's fences are the
+    **log-scale** ones: ln Q1 = 1.945910, ln median = 2.079442, ln Q3 = 2.197225, IQR = 0.251315,
+    so the upper fence is 2.197225 + 1.5 x 0.251315 = 2.574197 -> exp = 13.12 minutes (within
+    0.1 minutes of the log I-MR UCL of 13.21 above, which is the cross-check that the two agree)
+    and the lower fence is 1.945910 - 0.376972 = 1.568938 -> exp = 4.80 minutes. The whiskers end
+    at 6.0 and 9.0, and 40 is exactly one outlier. For the five known-answer calls
+    [6, 8, 7, 9, 10] the same log-scale fences are 4.80 and 13.12 minutes, there are **zero**
+    outliers, and the whiskers end at 6.0 and 10.0. (On raw minutes the fences would be 4.0 and
+    12.0; the chart uses the log scale for the reason in the method above, and the raw numbers
+    are not what the chart shows.)
+  - **Heatmap cell p90:** four calls in one zone, all on a Monday, at 10:05 -> 8 min,
+    10:25 -> 6 min, 10:45 -> 10 min and 11:10 -> 7 min. The (Monday, 10) cell holds [6, 8, 10],
+    so its p90 is 8 + 0.8 x (10 - 8) = 9.6 minutes, the same interpolation as the p90 bullet
+    above. The (Monday, 11) cell holds one call: with a minimum of 1 it reports 7.0 minutes, and
+    at the default minimum of 20 it reports "not enough calls" (not 7, not 0). The 168 cell
+    counts sum to the 4 calls. One real limit to say out loud: 168 cells need about 20 calls each,
+    so one zone fills its grid at **Yearly**; at Monthly most cells read "not enough calls" and at
+    Weekly and below almost all of them do. The page says so instead of drawing noise, and the
+    demo reads the heatmap at Yearly.
 
 Fixed for every team:
 - The statistic lives in **one plain, tested function** (`app/qc.py` or `app/qc.R`). The API, app or
@@ -164,28 +204,48 @@ Fixed for every team:
      and the MR chart.
   4. **Incident logging form:** add one incident; it is kept for the session only and can be
      downloaded as CSV (no database).
+  5. **Two descriptive charts in the zone detail** (added 2026-10-17): a box plot of the calls by
+     day of week, with a By month toggle, showing the median, the spread and the calls beyond
+     Tukey's fences as individual points; and a weekday x hour heatmap of the p90 in minutes for
+     that zone and period, with any cell below 20 calls greyed out and labelled "not enough
+     calls". The page draws both from the API and computes no percentile itself. Neither chart can
+     change a zone's status.
+  6. **Removed** on 2026-10-17: the "average response time by priority" charts. `priority` is
+     optional context, the test data has no priority effect, and a mean hides exactly what the p90
+     in item 3 shows.
 
 ## 7. Test datasets and codebook (rubric: demo 10, datasets 5, codebook 5)
 
-2-3 small CSVs in `data/`, invented but shaped like real field data, each showing one behavior.
+3 CSVs in `data/`, all named `*_synthetic.csv`, 24,000 rows each, all invented and simulated,
+all covering 2026-01-01 to 2026-12-31 (364 days) for the same 5 boroughs. No real incident row
+is copied; the columns are shaped like a CAD export. `data/README.md` is the codebook: every
+file, every column with units, and what it would take to collect this data for real.
 
-`data/README.md` is the codebook: every file, every column with units, and what it would take to collect this data for real.
+The expected result below is not a guess: it is what the tool reports for each file at each
+review period, and a teammate can reproduce it in one command (`demo/README.md`). The review
+period always ends at the latest dispatch in the file, so the windows are the same every time.
 
-- **Datasets** (simulated by `app/simulate.py` with fixed seeds: each borough's response times
-  are drawn from its real 12-month NYC distribution, call volume follows NYC's hour-of-day pattern
-  at 25%; problems are planted from day 40):
-  1. `stable_operations.csv`: 60 days, 5 boroughs, nothing planted. Expected: all zones 🟢 in
-     every period.
-  2. `zone_patterns.csv`: 60 days; from day 40 Staten Island normal, Queens high traffic, Bronx
-     2.5x call volume + 0-2 units, Brooklyn all three, Manhattan normal conditions but 60 isolated
-     extreme delays. Expected (Weekly and Monthly): Staten Island 🟢; Queens 🔴 Travel
-     conditions; Bronx 🔴 Demand / resource pressure; Brooklyn 🔴 Combined operational stress;
-     Manhattan 🟡 Unexplained special cause.
-  3. `minimal_input.csv`: only the 4 required columns, 21 days, 3 boroughs plus two zones that are
-     not boroughs ("Harbor Unit" uses its own first 14 days; "Ferry Terminal" has only 3 calls),
-     with planted data problems (2 missing times, 2 on-scene before dispatch, 1 duplicate id).
-     Expected: a warning for every bad row and for each non-borough zone, Ferry Terminal ⚪
-     Insufficient data, the other zones 🟢, "factors unavailable" message, no crash.
+| File | What it is | Expected result |
+|---|---|---|
+| `noDelayAlexData_2026_24000_synthetic.csv` | a year in which every borough is **faster** than its real NYC normal: the borough normal p90s are 17.47-22.18 min and this file reads 13.8-16.7 min at Weekly, Monthly and Yearly (10.1-19.4 min if you look at single days), and no call is above the control limit | all 5 zones 🟢 Normal in **every** period (⚪ Insufficient data for Staten Island in Live, which has too few calls in 3 hours). The tool must not cry wolf. |
+| `highDelayAlex_2026_24000_synthetic.csv` | the same city under a lasting delay (median 18.27 min, p90 47.08 min) with congestion planted | 🔴 Needs attention for all 5 zones from Weekly onward. At Daily, Bronx, Brooklyn and Manhattan are already 🔴 while Queens and Staten Island are still 🟢. Reasons name the borough's own normal rate (Manhattan weekly: 14 calls above the UCL, 11.3% of calls against a normal 1.3%, and a p90 of 68.7 min against the normal 19.2). Pattern: Travel conditions or Unexplained special cause. |
+| `stable_operations_2026_24000_synthetic.csv` | a year that is **mildly** worse than normal, with winter weather, holiday traffic and rush-hour causes planted | 🟢 Normal in Daily and Weekly; 🔴 Needs attention at Monthly and Yearly for Bronx, Brooklyn, Manhattan and Queens, with Staten Island 🟢. The reason is the **run rule**: 8, 16, 8 and 14 consecutive daily medians above the borough's centerline (Bronx, Brooklyn, Manhattan, Queens), all starting in early December 2026. Pattern: Unexplained special cause. |
+
+Two honest notes about these files, to keep the demo truthful:
+
+- The third file is named "stable" but it is **not** stable at Monthly and Yearly: the run rule
+  catches a sustained mild shift (the run lengths are 8, 16, 8 and 14 days for Bronx, Brooklyn,
+  Manhattan and Queens). That is the tool working, not a bug. Say the real reason in the demo
+  (`docs/plan.md`, risks).
+- The two files with a `response_time_min` column do not agree with their own timestamps (they
+  differ by up to 2.3 minutes). The tool **ignores that column and recomputes the interval**
+  from `dispatch_time` and `on_scene_time`, so one number in the file and one number on screen
+  will differ. The codebook says so. Never "fix" this by reading the column.
+
+None of the three files contains a deliberately broken row. The validation behaviour (a warning
+for each missing time, duplicate `incident_id`, or on-scene-before-dispatch) is therefore proven
+by `tests/test_qc.py`, not by a demo dataset.
+
 
 ## 8. Documentation and reproducibility (rubric: docs 10, public repo 5)
 - `README.md` says what the tool does, for whom, every input and parameter, how to run it in one

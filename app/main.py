@@ -1,290 +1,222 @@
-#!/usr/bin/env python3
-"""
-main.py — CLI entry point for NYC EMS Response Time Analysis
-Cornell SYSEN 5300 · Six Sigma Hackathon · Team Chiblings
+"""FastAPI entrypoint: a thin HTTP layer over app.qc (no statistics here)."""
 
-Usage:
-    python main.py --scenario stable
-    python main.py --scenario delay --borough Manhattan
-    python main.py --scenario fast  --borough all --window 1mo
-    python main.py --csv data/my_custom_file.csv --borough Queens
-    python main.py --report pdf --out reports/
-"""
+from __future__ import annotations
 
-import argparse
-import csv
-import math
-import os
-import sys
-from datetime import datetime, timedelta
+import io
+import json
 from pathlib import Path
+from typing import Any, Literal
 
-from qc import compute_stats, rating, NFPA_USL
+import pandas as pd
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
-
-# ── Constants ─────────────────────────────────────────────────────────────
-BOROUGHS = ["Queens", "Brooklyn", "Manhattan", "Bronx", "Staten Island"]
-SCENARIOS = {
-    "stable": "data/stable_operations_2026_24000_synthetic.csv",
-    "delay":  "data/highDelay_2026_24000_synthetic.csv",
-    "fast":   "data/noDelay_2026_24000_synthetic.csv",
-}
-WINDOWS = {"all", "6mo", "1mo", "week", "day"}
-
-EPOCH = datetime(2026, 1, 1)  # day_offset reference point
-
-
-# ── Data loading ──────────────────────────────────────────────────────────
-def load_csv(path: str) -> list[dict]:
-    """
-    Load a response-time CSV and return normalised row dicts.
-
-    Accepted schemas (mirrors JS parseCustomCSV):
-      - Schema A (no_delay / high_delay):
-          incident_id, call_received, dispatch_time, on_scene_time,
-          borough, zone, response_time_min, traffic_level,
-          available_units, priority, simulated_special_cause
-      - Schema B (stable_operations):
-          incident_id, call_received, dispatch_time, on_scene_time,
-          zone [used as borough], traffic_level, available_units,
-          priority, simulated_special_cause
-          (no borough or response_time_min columns)
-
-    Returns list of dicts with keys:
-        zone, rt, priority, traffic, units, day, hour
-    """
-    rows = []
-    with open(path, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        header = [h.strip().lower().replace(" ", "_") for h in reader.fieldnames or []]
-
-        for raw in reader:
-            row = {k.strip().lower().replace(" ", "_"): v.strip() for k, v in raw.items()}
-
-            # Borough / zone
-            zone_raw = (row.get("borough") or row.get("zone") or "").strip()
-            zone = next((b for b in BOROUGHS if b.lower() == zone_raw.lower()), None)
-            if not zone:
-                continue
-
-            # Response time
-            if "response_time_min" in header and row.get("response_time_min"):
-                try:
-                    rt = float(row["response_time_min"])
-                except ValueError:
-                    continue
-            else:
-                try:
-                    t0 = datetime.fromisoformat(row["call_received"])
-                    t1 = datetime.fromisoformat(row["on_scene_time"])
-                    rt = (t1 - t0).total_seconds() / 60
-                except (KeyError, ValueError):
-                    continue
-
-            if rt <= 0 or rt > 300:
-                continue
-
-            # Day offset & hour
-            try:
-                call_dt = datetime.fromisoformat(row["call_received"])
-                day = (call_dt.date() - EPOCH.date()).days
-                hour = call_dt.hour
-            except (KeyError, ValueError):
-                day, hour = 0, 0
-
-            # Traffic
-            trf_raw = (row.get("traffic_level") or "").lower()
-            if "gridlock" in trf_raw or "high" in trf_raw:
-                traffic = "High"
-            elif "medium" in trf_raw or "moderate" in trf_raw:
-                traffic = "Medium"
-            else:
-                traffic = "Low"
-
-            # Priority
-            pri_raw = (row.get("priority") or "").lower()
-            if "high" in pri_raw or pri_raw == "1":
-                priority = 1
-            elif "medium" in pri_raw or "moderate" in pri_raw or pri_raw == "3":
-                priority = 3
-            else:
-                priority = 6
-
-            # Units
-            try:
-                units = int(float(row.get("available_units", 1)))
-            except (ValueError, TypeError):
-                units = 1
-
-            rows.append({
-                "zone": zone,
-                "rt": rt,
-                "priority": priority,
-                "traffic": traffic,
-                "units": units,
-                "day": day,
-                "hour": hour,
-            })
-
-    return rows
-
-
-def filter_by_window(rows: list[dict], window: str) -> list[dict]:
-    """Return rows within the requested time window relative to max day_offset."""
-    if window == "all" or not rows:
-        return rows
-    max_day = max(r["day"] for r in rows)
-    delta = {"6mo": 182, "1mo": 30, "week": 7, "day": 1}.get(window, 0)
-    min_day = max(0, max_day - delta)
-    return [r for r in rows if r["day"] >= min_day]
-
-
-def filter_by_borough(rows: list[dict], borough: str) -> list[dict]:
-    """Return rows for a specific borough (or all if borough == 'all')."""
-    if borough.lower() == "all":
-        return rows
-    target = next((b for b in BOROUGHS if b.lower() == borough.lower()), None)
-    if not target:
-        raise ValueError(f"Unknown borough '{borough}'. Choose from: {BOROUGHS}")
-    return [r for r in rows if r["zone"] == target]
-
-
-# ── Reporting ─────────────────────────────────────────────────────────────
-def _bar(value: float, total: int, width: int = 20) -> str:
-    """Simple ASCII bar chart element."""
-    filled = round(value / 100 * width) if total else 0
-    return "█" * filled + "░" * (width - filled)
-
-
-def print_report(rows: list[dict], label: str) -> None:
-    """Print a formatted SPC summary to stdout."""
-    rt_vals = [r["rt"] for r in rows]
-    s = compute_stats(rt_vals)
-
-    print(f"\n{'═'*60}")
-    print(f"  NYC EMS Response Time — {label}")
-    print(f"{'═'*60}")
-
-    if s is None:
-        print(f"  ⚠  Insufficient data (n={len(rt_vals)}, need ≥4)")
-        return
-
-    # Overview
-    print(f"\n  Observations : {s.n:,}")
-    print(f"  Arithmetic μ : {s.arith_mean:.2f} min")
-    print(f"  Geometric  μ : {s.geo_mean:.2f} min  "
-          f"[95% CI: {s.geo_ci_low:.2f} – {s.geo_ci_high:.2f}]")
-    print(f"  p90          : {s.p90:.2f} min")
-    print(f"  Cpk (log)    : {s.cpk:.3f}  "
-          f"({'✅ capable' if s.cpk >= 1.33 else '⚠ marginal' if s.cpk >= 1.0 else '❌ not capable'})")
-    print(f"  NFPA 1710 USL: {NFPA_USL:.1f} min")
-
-    # I-MR summary
-    imr = s.imr
-    print(f"\n  ── I-MR Control Chart (log scale) ──")
-    print(f"  CL  = {math.exp(imr.log_cl):.2f} min  (ln={imr.log_cl:.4f})")
-    print(f"  UCL = {imr.ucl_min:.2f} min  (ln={imr.log_ucl:.4f})")
-    print(f"  LCL = {imr.lcl_min:.2f} min  (ln={imr.log_lcl:.4f})")
-    print(f"  OOC : {imr.ooc_total} points  "
-          f"({imr.ooc_high} above UCL, {imr.ooc_low} below LCL)")
-
-    # Category breakdown
-    print(f"\n  ── Response Time Categories ──")
-    print(f"  Good  (<8 min) : {s.good:>5,}  {_bar(s.good_pct, s.n)}  {s.good_pct:5.1f}%")
-    print(f"  Fair  (8–15)   : {s.fair:>5,}  {_bar(s.fair_pct, s.n)}  {s.fair_pct:5.1f}%")
-    print(f"  Bad   (≥15)    : {s.bad:>5,}  {_bar(s.bad_pct, s.n)}  {s.bad_pct:5.1f}%")
-
-    print()
-
-
-def print_borough_breakdown(rows: list[dict], scenario_label: str) -> None:
-    """Print per-borough stats table."""
-    print(f"\n{'─'*80}")
-    print(f"  PER-BOROUGH BREAKDOWN — {scenario_label}")
-    print(f"{'─'*80}")
-    print(f"  {'Borough':<16} {'n':>5}  {'Geo μ':>7}  {'p90':>6}  {'Cpk':>6}  "
-          f"{'Good%':>6}  {'Fair%':>6}  {'Bad%':>5}  {'OOC':>4}")
-    print(f"  {'─'*16} {'─'*5}  {'─'*7}  {'─'*6}  {'─'*6}  "
-          f"{'─'*6}  {'─'*6}  {'─'*5}  {'─'*4}")
-
-    for borough in BOROUGHS:
-        br = [r for r in rows if r["zone"] == borough]
-        s  = compute_stats([r["rt"] for r in br])
-        if s is None:
-            print(f"  {borough:<16} {'—':>5}")
-            continue
-        cpk_str = f"{s.cpk:.2f}" if s.cpk < 99 else ">99"
-        print(
-            f"  {borough:<16} {s.n:>5,}  {s.geo_mean:>7.2f}  {s.p90:>6.2f}  "
-            f"{cpk_str:>6}  {s.good_pct:>5.1f}%  {s.fair_pct:>5.1f}%  "
-            f"{s.bad_pct:>4.1f}%  {s.imr.ooc_total:>4}"
-        )
-    print()
-
-
-# ── CLI ───────────────────────────────────────────────────────────────────
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(
-        description="NYC EMS Response Time — Six Sigma Analysis CLI",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py --scenario stable
-  python main.py --scenario delay  --borough Manhattan --window 1mo
-  python main.py --csv data/custom.csv --window 6mo
-  python main.py --scenario fast   --borough all      --breakdown
-""",
+try:
+    from qc import analyze_zone, boxplot_by_group, overview, prepare_incidents, weekday_hour_grid
+except ModuleNotFoundError:
+    from app.qc import (
+        analyze_zone,
+        boxplot_by_group,
+        overview,
+        prepare_incidents,
+        weekday_hour_grid,
     )
-    src = p.add_mutually_exclusive_group(required=True)
-    src.add_argument("--scenario", choices=["stable", "delay", "fast"],
-                     help="Built-in scenario CSV (stable / delay / fast)")
-    src.add_argument("--csv", metavar="FILE",
-                     help="Path to a custom CSV file")
 
-    p.add_argument("--borough", default="all",
-                   help="Borough to analyse ('all' or e.g. 'Manhattan')")
-    p.add_argument("--window", default="all", choices=list(WINDOWS),
-                   help="Time window (all / 6mo / 1mo / week / day)")
-    p.add_argument("--breakdown", action="store_true",
-                   help="Print per-borough breakdown table")
-    return p.parse_args()
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
+# The three test datasets in data/ (SPEC.md section 7). The key is what the UI shows; the file is
+# what actually gets loaded, so a judge can point at the same CSV the dashboard is reading.
+SAMPLES: dict[str, str] = {
+    "no_delay": "noDelayAlexData_2026_24000_synthetic.csv",
+    "stable_operations": "stable_operations_2026_24000_synthetic.csv",
+    "high_delay": "highDelayAlex_2026_24000_synthetic.csv",
+}
+Period = Literal["live", "daily", "weekly", "monthly", "yearly"]
 
-def main() -> None:
-    args = parse_args()
-
-    # Locate CSV
-    if args.scenario:
-        csv_path = SCENARIOS[args.scenario]
-        label_base = {"stable": "Stable Operations", "delay": "High Delay",
-                      "fast": "No Delay / Fast"}[args.scenario]
-    else:
-        csv_path = args.csv
-        label_base = Path(args.csv).stem
-
-    if not os.path.exists(csv_path):
-        print(f"Error: CSV not found at '{csv_path}'", file=sys.stderr)
-        print("  Put your CSVs in the data/ directory and re-run.", file=sys.stderr)
-        sys.exit(1)
-
-    print(f"Loading {csv_path} …", end=" ", flush=True)
-    rows = load_csv(csv_path)
-    print(f"{len(rows):,} valid rows loaded.")
-
-    # Apply filters
-    rows = filter_by_window(rows, args.window)
-    window_label = {"all": "Full Year", "6mo": "Last 6 Mo", "1mo": "Last 1 Mo",
-                    "week": "Last Week", "day": "Last Day"}.get(args.window, args.window)
-
-    borough_label = args.borough if args.borough.lower() != "all" else "All Boroughs"
-    label = f"{label_base} · {borough_label} · {window_label}"
-
-    analysis_rows = filter_by_borough(rows, args.borough)
-    print_report(analysis_rows, label)
-
-    if args.breakdown:
-        print_borough_breakdown(rows, f"{label_base} · {window_label}")
+app = FastAPI(
+    title="Chiblings NYC EMS Zone Monitor",
+    description=(
+        "Statistical early warning for EMS dispatch-to-on-scene response times: "
+        "log I-MR control charts per zone against each NYC borough's normal (12 months of FDNY "
+        "incidents), bootstrap p90 test, zone status and possible conditions."
+    ),
+    version="0.2.0",
+)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
-if __name__ == "__main__":
-    main()
+class Dataset:
+    """The dataset currently loaded (one shared dataset; no database, nothing saved to disk)."""
+
+    def __init__(self) -> None:
+        self.name: str | None = None
+        self.raw: pd.DataFrame | None = None
+        self.clean: pd.DataFrame | None = None
+        self.warnings: list[str] = []
+
+    def load(self, name: str, raw: pd.DataFrame) -> None:
+        clean, warnings = prepare_incidents(raw)  # raises ValueError on missing columns
+        self.name, self.raw, self.clean, self.warnings = name, raw, clean, warnings
+
+
+current = Dataset()
+_sample_cache: dict[str, pd.DataFrame] = {}
+
+
+class IncidentIn(BaseModel):
+    incident_id: str | None = None
+    zone: str
+    dispatch_time: str
+    on_scene_time: str
+    call_received: str | None = None
+    traffic_level: Literal["Low", "Medium", "High"] | None = None
+    available_units: int | None = None
+    priority: Literal["High", "Medium", "Low"] | None = None
+
+
+def _json(payload: dict[str, Any]) -> JSONResponse:
+    """JSON response without numpy scalars or NaN."""
+    def default(o: Any) -> Any:
+        return o.item() if hasattr(o, "item") else str(o)
+    text = json.dumps(payload, default=default).replace("NaN", "null")
+    return JSONResponse(json.loads(text))
+
+
+def _require_data() -> None:
+    if current.clean is None:
+        raise HTTPException(status_code=400, detail="load a sample or upload a CSV first")
+
+
+def _overview(period: str) -> JSONResponse:
+    out = overview(current.clean, current.warnings, period)
+    out["dataset"] = current.name
+    return _json(out)
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/")
+async def dashboard() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/samples")
+async def list_samples() -> dict[str, Any]:
+    return {
+        "samples": list(SAMPLES),
+        "files": SAMPLES,
+    }
+
+
+@app.post("/api/samples/{name}")
+async def load_sample(
+    name: str, period: Period = "monthly"
+) -> JSONResponse:
+    if name not in SAMPLES:
+        raise HTTPException(status_code=404, detail=f"unknown sample {name!r}")
+    if name not in _sample_cache:
+        path = DATA_DIR / SAMPLES[name]
+        if not path.exists():
+            raise HTTPException(status_code=500, detail=f"missing dataset file {SAMPLES[name]}")
+        _sample_cache[name] = pd.read_csv(path)  # the committed CSV, not a regenerated one
+    current.load(name, _sample_cache[name].copy())
+    return _overview(period)
+
+
+@app.post("/api/upload")
+async def upload(
+    file: UploadFile = File(...), period: Period = "monthly",
+) -> JSONResponse:
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="upload a CSV file")
+    try:
+        raw = pd.read_csv(io.BytesIO(await file.read()))
+        current.load(file.filename, raw)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except Exception as err:  # unreadable CSV
+        raise HTTPException(status_code=400, detail=f"invalid CSV: {err}") from err
+    return _overview(period)
+
+
+@app.get("/api/overview")
+async def get_overview(period: Period = "monthly") -> JSONResponse:
+    _require_data()
+    return _overview(period)
+
+
+@app.get("/api/zone/{zone}")
+async def get_zone(
+    zone: str, period: Period = "monthly"
+) -> JSONResponse:
+    _require_data()
+    if zone not in set(current.clean["zone"]):
+        raise HTTPException(status_code=404, detail=f"unknown zone {zone!r}")
+    detail = analyze_zone(current.clean, zone, period, include_points=True)
+    return _json(detail)
+
+
+@app.get("/api/charts/boxplot/{zone}")
+async def get_boxplot(
+    zone: str,
+    period: Period = "monthly",
+    group: Literal["weekday", "month"] = "weekday",
+) -> JSONResponse:
+    """Tukey box plots per weekday (or per calendar month). Descriptive only: this endpoint
+    cannot change any zone's status, and the page computes no quartile itself."""
+    _require_data()
+    if zone not in set(current.clean["zone"]):
+        raise HTTPException(status_code=404, detail=f"unknown zone {zone!r}")
+    return _json(boxplot_by_group(current.clean, zone, period, group=group))
+
+
+@app.get("/api/charts/heatmap/{zone}")
+async def get_heatmap(
+    zone: str,
+    period: Period = "yearly",
+    stat: Literal["p90", "median"] = "p90",
+    minimum: int = 20,
+) -> JSONResponse:
+    """The weekday x hour grid for one zone. A cell under `minimum` calls comes back as null,
+    which the page renders as "not enough calls" - never as 0."""
+    _require_data()
+    if zone not in set(current.clean["zone"]):
+        raise HTTPException(status_code=404, detail=f"unknown zone {zone!r}")
+    return _json(weekday_hour_grid(current.clean, zone, period, stat=stat, minimum=minimum))
+
+
+@app.post("/api/incident")
+async def log_incident(
+    incident: IncidentIn, period: Period = "live"
+) -> JSONResponse:
+    """Add one incident to the loaded data for this session (kept in memory only)."""
+    row = {k: v for k, v in incident.model_dump().items() if v is not None}
+    base = current.raw if current.raw is not None else pd.DataFrame()
+    row.setdefault("incident_id", f"LOG-{len(base) + 1:06d}")
+    try:
+        current.load(current.name or "logged incidents", pd.concat([base, pd.DataFrame([row])],
+                                                                    ignore_index=True))
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    return _overview(period)
+
+
+@app.get("/api/download")
+async def download() -> Response:
+    """The loaded data, including incidents logged this session, as CSV."""
+    _require_data()
+    buf = io.StringIO()
+    current.raw.to_csv(buf, index=False)
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": "attachment; filename=incidents.csv"})
+
+
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

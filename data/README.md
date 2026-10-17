@@ -1,137 +1,126 @@
-# Data codebook: Chiblings NYC EMS Zone Monitor
+# Data — codebook
 
-Two kinds of data are used.
+Everything the Chiblings NYC EMS Zone Monitor is demonstrated and tested on lives in this
+directory. **All three datasets are simulated. No real incident row is copied, and no file here
+came from an ambulance or a hospital.** The shape of every column is what a CAD/EMS dispatch export
+looks like, so the same tool would run on a real extract unchanged.
 
-1. **Real reference data (borough normals).** 12 months of FDNY incidents from NYC Open Data,
-   *EMS Incident Dispatch Data*, dataset `76xm-jjuj`
-   (https://data.cityofnewyork.us/Public-Safety/EMS-Incident-Dispatch-Data/76xm-jjuj),
-   incidents from 2025-10-01 to 2026-09-30. `data/nyc_normals.py` downloads it (cached in
-   `data/nyc_raw/`, not committed, about 100 MB) and writes the per-borough statistics to
-   `app/nyc_normals.json`, which the app uses. 1,461,139 incidents downloaded; 1,442,227 kept.
-2. **Simulated test files** (`*.csv` in this folder), made by `app/simulate.py` with fixed seeds.
-   No real incident row is copied: response times are **drawn from each borough's real
-   distribution**, and traffic, units, call-to-dispatch gaps and priority are simulated. No
-   patients, addresses or real call records.
+    data/
+      noDelayAlexData_2026_24000_synthetic.csv          24,000 rows   (the "clean" year)
+      highDelayAlex_2026_24000_synthetic.csv            24,000 rows   (the "slow" year)
+      stable_operations_2026_24000_synthetic.csv        24,000 rows   (the "mildly slow" year)
+      nyc_normals.py                                    rebuilds app/nyc_normals.json
+      README.md                                         this file
 
-**Rebuild** (from the repo root, with the virtual environment active):
-
-```bash
-python data/nyc_normals.py     # real borough normals (about 5 minutes; needs internet)
-python -m app.simulate          # the three test files
-```
-
-Seeds: `stable_operations` 101, `zone_patterns` 202, `minimal_input` 303. The deployed app
-regenerates the same files from these seeds, so the demo needs no upload.
-
-**Main measure:** `response_time_min = on_scene_time - dispatch_time`, in minutes
-(`SPEC.md` section 4). The tool computes it; it is not stored in the files.
+`app/nyc_normals.json` (committed, so the tool needs no internet) holds the **real** 12-month NYC
+FDNY per-borough response-time normals the tool compares each zone against. `nyc_normals.py` is the
+script that downloaded and reduced them from NYC Open Data (`76xm-jjuj`); it needs ~100 MB of
+download, so run it only when you want to refresh the normals.
 
 ---
 
-## Real NYC reference data (`app/nyc_normals.json`)
+## 1. The three datasets
 
-| NYC column | Our use |
-|---|---|
-| `first_assignment_datetime` | = `dispatch_time` (unit assigned) |
-| `first_on_scene_datetime` | = `on_scene_time` |
-| `borough` | = `zone` (`RICHMOND / STATEN ISLAND` -> Staten Island) |
-| `incident_datetime` | call volume by hour of day |
-| `final_severity_level_code` | downloaded for reference; all severities are kept |
-| `valid_incident_rspns_time_indc` | only `Y` (FDNY's flag for a valid response time) |
+All three cover **2026-01-01 to 2026-12-31** (365 distinct days) for the same five boroughs, and all
+three carry a `simulated_special_cause` column that names what the simulator planted. **The tool
+never reads that column** — it exists so a reviewer can check that the tool found a problem by
+statistics and not by reading the answer key.
 
-Rows are also dropped if the borough is unknown or the on-scene time is not after assignment.
-Stored per borough: number of calls, median, mean, SD, p90, p95 (minutes); log-scale centerline,
-average moving range, UCL, LCL and MR UCL (calls in dispatch order); the share of calls above the
-UCL; calls per day and per hour of day; 201 quantiles of the log response time (used by the
-simulator).
+| | `noDelayAlexData_…` | `stable_operations_…` | `highDelayAlex_…` |
+|---|---|---|---|
+| What it is meant to be | a year in which the city is **faster** than normal | a year that is **mildly** slower than normal | a year under a **lasting city-wide delay** |
+| median response | 6.55 min | 9.42 min | 18.27 min |
+| p90 response | 15.05 min | 22.07 min | 47.08 min |
+| p90 at Weekly / Monthly / Yearly | 13.8 / 15.7 / 14.6 min | see §1 note | 44–69 min |
+| max response | 39.43 min | 687.55 min | 119.47 min |
+| calls < 1 min | 24 | 180 | 2 |
+| calls > 120 min | 0 | 120 | 0 |
+| traffic High / Medium / Low | 1,403 / 5,896 / 16,701 | 2,922 / 7,444 / 13,634 | 6,184 / 7,265 / 10,551 |
+| `available_units` range (median) | 6–10 (8) | 4–8 (7) | 3–8 (6) |
+| calls per borough | Bk 6,958 · Mn 5,500 · Bx 5,465 · Qn 4,933 · SI 1,144 | Bk 6,980 · Mn 5,721 · Bx 5,257 · Qn 4,938 · SI 1,104 | Bk 6,958 · Mn 5,500 · Bx 5,465 · Qn 4,933 · SI 1,144 |
+| warnings from the tool | none | 120 responses over 120 min kept | none |
+| expected status | 🟢 all five in **every** period | 🟢 Daily and Weekly; 🔴 Monthly and Yearly for Bronx, Brooklyn, Manhattan, Queens; Staten Island 🟢 | 🔴 all five from Weekly onward; at Daily, Bronx, Brooklyn and Manhattan 🔴 and Queens, Staten Island still 🟢 |
 
-| Borough | Calls | Median | p90 | UCL | Share above UCL |
-|---|---|---|---|---|---|
-| Bronx | 329,179 | 9.1 min | 21.0 min | 68.7 min | 1.7% |
-| Brooklyn | 416,731 | 8.7 | 19.7 | 57.9 | 0.8% |
-| Manhattan | 332,295 | 8.3 | 19.2 | 64.1 | 1.3% |
-| Queens | 298,949 | 9.8 | 22.2 | 72.0 | 0.8% |
-| Staten Island | 65,073 | 8.4 | 17.5 | 47.2 | 0.75% |
+The borough normals this is compared against are the real NYC p90s: Bronx 21.03, Brooklyn 19.68,
+Manhattan 19.23, Queens 22.18, Staten Island 17.47 min. So `noDelayAlexData_…` sits clearly below
+every one of them and `highDelayAlex_…` clearly above.
 
----
+Expected status is **measured, not asserted**: it is what `app/qc.py` reports for the committed
+file, and `tests/test_qc.py` fails if it ever changes. The review period always ends at the latest
+dispatch in the file, so the windows are identical on every machine.
 
-## Columns of the test files
-
-| Variable | Required by the tool? | Unit / values | Definition and role | How a real dispatch center collects it |
-|---|---|---|---|---|
-| `incident_id` | required | text, e.g. `EMS-000123` | unique incident id; duplicates are dropped with a warning | assigned by the CAD (Computer-Aided Dispatch) system |
-| `call_received` | optional | `YYYY-MM-DD HH:MM:SS` | 911 call answered; gives `call_to_dispatch_min = dispatch_time - call_received` (context only) | CAD / phone system timestamp |
-| `dispatch_time` | required | `YYYY-MM-DD HH:MM:SS` | ambulance assigned; **start** of the measured interval; sets chart order | CAD timestamp when the unit is assigned |
-| `on_scene_time` | required | `YYYY-MM-DD HH:MM:SS` | ambulance arrived; **end** of the measured interval | crew presses "on scene" on the mobile terminal |
-| `zone` | required | Bronx, Brooklyn, Manhattan, Queens, Staten Island (any other name uses its own first 14 days) | where the incident is; each zone gets its own control chart | CAD incident location |
-| `traffic_level` | optional | Low / Medium / High | road conditions at dispatch; possible contributing condition | dispatcher entry or a traffic feed |
-| `available_units` | optional | integer, ambulances | free ambulances in the zone at dispatch; possible contributing condition | CAD unit-status board |
-| `priority` | optional | High / Medium / Low | triage priority; context and filter only | dispatcher triage |
-| `simulated_special_cause` | test files only | none / traffic / demand_resource / combined / isolated_delay | where a problem was planted, so tests can check the tool finds it; **the tool never reads it** | not a real-world field |
-
-**Derived by the tool (not in the files):** `response_time_min`; `call_to_dispatch_min`;
-`time_of_day` (Overnight 0-5, Morning 6-9, Day 10-15, Evening peak 16-19, Night 20-23);
-`recent_call_volume` (calls dispatched in the same zone during the previous 15 minutes).
+**Read `stable_operations_…` honestly.** Its name says "stable", but from Monthly onward the run
+rule finds a sustained upward shift — 8 consecutive daily medians above the centerline for the
+Bronx, 16 for Brooklyn, 8 for Manhattan and 14 for Queens, all starting in early December 2026.
+That is the tool doing its job on a real property of the data (winter weather and holiday traffic
+are planted in it), not a bug — and it is the clearest demonstration in the pack that the choice of
+review period changes the answer.
 
 ---
 
-## How the test files are simulated
+## 2. Columns
 
-```
-response_time = draw from the borough's real NYC distribution
-                + traffic_effect + workload_effect + low_unit_effect   (planted periods only)
-```
+| Column | Units / values | Required? | Notes |
+|---|---|---|---|
+| `incident_id` | text, unique | **required** | 24,000 unique values in every file; a duplicate is dropped with a warning |
+| `dispatch_time` | timestamp, local | **required** | when the call was dispatched |
+| `on_scene_time` | timestamp, local | **required** | when the unit arrived; a row where this is not after `dispatch_time` is dropped with a warning |
+| `zone` | `Bronx`, `Brooklyn`, `Manhattan`, `Queens`, `Staten Island` | **required** | the reporting zone. A non-borough zone is judged against its own first 14 days and says so |
+| `call_received` | timestamp, local | optional | kept for reference; not used in any statistic |
+| `response_time_min` | minutes | **not read** | present in the two Alex files only; the tool recomputes the interval from the two timestamps (see §3) |
+| `borough` | same five names | optional | present in the two Alex files; identical to `zone` in every row. `stable_operations_…` omits it, which is the point: the tool must run without it |
+| `traffic_level` | `Low`, `Medium`, `High` | optional | used for the "Traffic HIGH" condition only when a zone is already flagged |
+| `available_units` | integer | optional | used for the "Units LOW" condition only |
+| `priority` | `Low`, `Medium`, `High` | optional | context only; the tool does **not** chart or threshold on it (the data has no priority effect) |
+| `simulated_special_cause` | text | **never read** | the simulator's answer key. The tool must reach the same conclusion from the numbers |
 
-| Part | Value (our assumption) |
-|---|---|
-| normal response time | inverse-CDF draw from the borough's 201 real log-quantiles |
-| calls per hour | the borough's real NYC calls per hour of day x 25% |
-| traffic | share of High: Overnight 2%, Morning 15%, Day 8%, Evening peak 20%, Night 5%; planted 85%; planted effect Medium +1.5, High +4.0 min |
-| workload | planted 2.5x call volume; +3.0 min when `recent_call_volume` >= 2x the borough's normal 15-minute volume |
-| available units | normally 5-8; planted 0-2, +4.0 min |
-| call-to-dispatch gap | 0.5-2 min normally; 3-6 min when 0-2 units are available |
-| isolated delays | Manhattan: 60 single calls at 1.3-2.0x its UCL |
-| priority | High 30%, Medium 50%, Low 20%; no effect on time |
-
----
-
-## Files
-
-### 1. `stable_operations.csv`
-
-| Item | Detail |
-|---|---|
-| Rows | 58,744 |
-| Dates | 2026-08-01 to 2026-09-29 (60 days), 5 boroughs |
-| Planted | nothing |
-| Expected | all zones 🟢 Normal in every period (p90 close to each borough's normal) |
-
-### 2. `zone_patterns.csv`
-
-| Item | Detail |
-|---|---|
-| Rows | 74,927 |
-| Dates | 2026-08-01 to 2026-09-29 (60 days), 5 boroughs |
-| Planted (from day 40, 2026-09-09) | **Staten Island** nothing · **Queens** 85% of calls in High traffic · **Bronx** 2.5x call volume and 0-2 units · **Brooklyn** all three · **Manhattan** normal conditions but 60 isolated extreme delays |
-| Expected (Weekly and Monthly) | Staten Island 🟢 · Queens 🔴 Travel conditions · Bronx 🔴 Demand / resource pressure · Brooklyn 🔴 Combined operational stress · Manhattan 🟡 Unexplained special cause; shifts start on 2026-09-09 |
-
-### 3. `minimal_input.csv`
-
-| Item | Detail |
-|---|---|
-| Rows | 4,123 |
-| Dates | 2026-08-01 to 2026-08-21 (21 days); Bronx, Brooklyn, Queens and "Harbor Unit" at 5% of NYC volume, plus 3 "Ferry Terminal" calls |
-| Columns | **only the 4 required columns** |
-| Planted data problems | 2 missing `on_scene_time`, 2 `on_scene_time` before `dispatch_time`, 1 duplicate `incident_id`; two zones that are not NYC boroughs |
-| Expected | a warning for each kind of bad row and each non-borough zone; Harbor Unit judged against its own first 14 days; Ferry Terminal ⚪ Insufficient data; other zones 🟢; "Operational contributing factors are unavailable in the uploaded data"; no crash |
+Only the four **required** columns are truly needed. The tool runs, and the statistics stay correct,
+with just those four.
 
 ---
 
-## Collecting this data for real
+## 3. What the tool does to the data — and the one number that will not match
 
-Every required column is already recorded by a dispatch center's CAD system: the incident
-number, the zone, the time a unit is assigned and the time the crew marks "on scene" (exactly
-the fields FDNY publishes as `first_assignment_datetime` and `first_on_scene_datetime`). A
-supervisor exports these as a CSV (one row per incident) and uploads it. `call_received` and
-`available_units` also come from CAD; `traffic_level` needs a dispatcher entry or a traffic feed.
-Real exports should drop cancelled calls and calls without an on-scene time before analysis.
+1. **It recomputes `response_time_min` from the timestamps** and ignores any column of that name.
+   In the two Alex files the provided column disagrees with its own timestamps by up to **2.3
+   minutes** (`highDelayAlex_…` states `1.28`–`120.00`; the timestamps give `0.78`–`119.47`). The
+   tool's number is the one on screen. This is deliberate: SPEC.md section 3 says the interval is
+   derived, never entered — a hand-entered or stale duration column is exactly the kind of error a
+   control chart must not inherit.
+2. **It drops bad rows with one warning each**: a missing or unreadable dispatch/on-scene time, a
+   duplicate `incident_id`, or an on-scene time not after the dispatch time.
+3. **It keeps, but flags, implausible long calls.** `stable_operations_…` has 120 calls over 120
+   minutes (38 of them over 5 hours, the longest 687.55 min = 11.5 h). Dropping them would hide the
+   very tail the p90 test watches, so they are kept and the warning is shown.
+4. **It does not repair sub-second calls.** `stable_operations_…` has a 0.02-minute call (1.2
+   seconds) and 180 calls under a minute. Those are impossible on-scene times in reality; they are
+   the simulator's tail, and the tool leaves them in. If this were real data the honest next step
+   would be a documented lower bound — it is listed as a known limitation, not silently fixed.
+
+**No file in this directory contains a deliberately broken row.** The validation behaviour in step 2
+is therefore proven by unit tests that build the broken rows in memory
+(`tests/test_qc.py::test_bad_rows_are_dropped_with_a_warning_for_each_kind`), not by a demo dataset.
+
+---
+
+## 4. How this data would be collected for real
+
+The tool's input is the EMS CAD (computer-aided dispatch) incident export that every 911 centre
+already produces: one row per incident, with the dispatch time, the on-scene time, and the
+responding zone. `traffic_level` corresponds to a traffic-feed overlay, `available_units` to the
+CAD unit-status table, and `priority` to the call-taking priority code. Real collection would add
+the columns this simulation leaves out and that the method cannot do without: a **unit identifier**
+(a zone's times mix several units), a **cancellation flag** (a cancelled call has no on-scene time
+and must not be counted as a fast response), and **mutual-aid flags** (a borough answering another
+borough's call makes both look wrong).
+
+The real normals the tool compares against — `app/nyc_normals.json` — come from NYC Open Data
+dataset `76xm-jjuj` (FDNY incident response times), reduced to one 12-month centre/p90 per borough.
+That file is real data; the three test CSVs are not.
+
+## 5. Reproducibility
+
+The three CSVs are committed, so a fresh clone reproduces every number in this codebook and every
+test result with no download and no seed. Their **generator script is not in this repo** (it was run
+once, off-repo, by the teammate who built them); the files themselves are the artifact of record.
+Committing the generator is an open item — see `docs/plan.md`, risks.

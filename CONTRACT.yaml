@@ -22,7 +22,7 @@
 # Delete the paths you do not use.
 
 spec: SPEC.md
-updated: ""
+updated: "2026-10-17 12:40"
 
 tasks:
   - id: H-01
@@ -58,9 +58,9 @@ tasks:
   - id: H-03
     title: Core QC statistic as one plain, tested function
     points: "25 - Tool Implementation: valid analyses relevant to quality control in R or Python"
-    status: todo
-    owner: ""
-    started_at: ""
+    status: done
+    owner: "opencode agent + Chiblings"
+    started_at: "2026-10-17 11:22"
     owns: ["app/qc.py", "app/qc.R", "app/requirements.txt", "tests/"]
     notes: >
       Load the stats-first-steering skill before writing any statistics. Plain
@@ -69,12 +69,12 @@ tasks:
       pytest tests (Python) or Rscript -e "testthat::test_dir('tests')" (R)
       passes, including one test that reproduces the SPEC section 4
       known-answer check and one degenerate case (constant data or n = 1).
-    result: ""
+    result: "pytest tests -q -> 65 passed on Python 3.14.4 / pandas 3.0.5 / numpy 2.5.2. SPEC section 4 known answers reproduced: mean 8.0000, MRbar 1.5000, raw UCL 11.99 / LCL 4.01, log CL 7.8726 / UCL 13.2061 / LCL 4.6931, MR UCL 0.6353; p90 of [6,8,7,9,10] = 9.6; dispatch 17:42:10 -> on scene 17:51:55 = 9.75 min. Degenerate cases: control_limits_raw([5.0]) raises ValueError, imr_limits_log of 5x5.0 raises ValueError, control_limits_raw(5x5.0) gives center/lower/upper 5.0 and mr_bar 0.0 with no inf or NaN, response_summary([7.0]) gives n 1.0, stdev 0.0, p90 7.0."
 
   - id: H-04
     title: Working tool - one demo copied to app/ and wired to the H-03 function
     points: "25 - Tool Implementation: an effective, working tool (does it run?)"
-    status: todo
+    status: done
     owner: ""
     started_at: ""
     owns: ["app/"]
@@ -86,7 +86,7 @@ tasks:
       The testme script in app/ starts the tool with one command, and a call
       on one data/ file (endpoint, function call or app upload) returns the
       same numbers as the H-03 known-answer test.
-    result: ""
+    result: "bash app/testme.sh starts uvicorn on 0.0.0.0:8000 ('Uvicorn running on http://0.0.0.0:8000'); GET / -> 200 and the HTML carries the new no_delay / stable_operations / high_delay buttons plus the boxPlot and heatGrid panels; GET /api/zone/Bronx?period=monthly returns exactly analyze_zone(..., 'Bronx', 'monthly') (MATCHES app.qc: True); both /api/charts/ endpoints match boxplot_by_group and weekday_hour_grid exactly; /api/download -> 200. Found and cleared a leftover pre-change uvicorn from the earlier H-04 check that was holding port 8000."
 
   - id: H-05
     title: Demonstration of the tool on every test dataset
@@ -155,3 +155,60 @@ tasks:
       testme script and the H-03 tests both pass with no extra steps; git
       grep -i "api_key" finds no real key; the Devpost entry links the repo.
     result: ""
+
+  - id: H-09
+    title: "Day-of-week box plot and weekday x hour p90 heatmap, statistics first"
+    points: "10 - Tool Design: a clear demonstration on the test datasets (the two new charts)"
+    status: done
+    owner: "opencode agent + Chiblings"
+    started_at: "2026-10-17 12:05"
+    owns: ["SPEC.md", "app/qc.py", "tests/", "app/static/"]
+    notes: >
+      Proposed by the team on 2026-10-17 and agreed in chat ("ok go do this").
+      Drops the two average-response-by-priority charts. Adds two DESCRIPTIVE
+      charts; they must never create a red or yellow zone. Box plot on
+      ln(response_time_min) so the outliers are real ones, quartiles by linear
+      interpolation (type 7), Tukey fences Q1 - 1.5*IQR and Q3 + 1.5*IQR.
+      Heatmap cells are p90, never the mean, and a cell with fewer than 20
+      calls reads "not enough calls", never a number and never 0. SPEC.md
+      section 4 and section 6 change first, then the code, then the page.
+      One limit found while building it, now stated in SPEC.md section 4: with
+      168 cells, one zone fills its grid at Yearly (146 of 168 cells for Bronx);
+      at Monthly every cell is under 20 calls and the page says so instead of
+      drawing noise.
+    definition_of_done: >
+      pytest tests passes with the box plot known answer ([6,7,8,9,40]: Q1 7.0,
+      median 8.0, Q3 9.0 in minutes, exactly 1 outlier), the log-scale fences
+      4.80 and 13.12 minutes (the raw-scale 4.0 and 12.0 are NOT what the chart
+      computes), zero outliers for [6,8,7,9,10], a heatmap cell p90 of 9.6
+      minutes for [6,8,10], None for a 1-call cell at the default minimum, no
+      inf or NaN for constant data, and the zone statuses on every data/
+      dataset unchanged from before the change.
+    result: "Two descriptive charts, statistics first, 7 new tests. Box plot known answers: [6,7,8,9,40] -> Q1 7.0, median 8.0, Q3 9.0; log-scale fences 4.80 and 13.12 min; whiskers 6.0 and 9.0; exactly 1 outlier; [6,8,7,9,10] -> 0 outliers, whiskers 6.0 and 10.0; constant data -> IQR 0, no inf or NaN; fewer than 5 calls raises ValueError. Heatmap: (Monday, 10) cell p90 = 9.6 min for [6,8,10]; a 1-call cell is None at the default minimum and 'not enough calls' on the page, never 0; counts sum to the period total; stat='mean' is refused. A regression test asserts neither chart moves a zone status. Measured limit now stated in SPEC section 4: Bronx fills 146 of 168 cells at Yearly and 0 of 168 at Monthly, so the page says so instead of drawing noise."
+
+  - id: H-10
+    title: "Point the datasets, the codebook, the API samples and the tests at the three synthetic CSVs"
+    points: "10 - Tool Documentation: 2-3 working test datasets and a codebook (keeps H-02 and H-04 honest)"
+    status: done
+    owner: "opencode agent + Chiblings"
+    started_at: "2026-10-17 11:50"
+    owns: ["SPEC.md", "data/", "app/main.py", "tests/"]
+    notes: >
+      Asked for by the team on 2026-10-17: "you need to use the synthetic data
+      please. Like it says that in the csv file name." The three committed
+      `*_synthetic.csv` files are now the only datasets. The three CSVs the
+      agent had restored from commit 24f625f (stable_operations.csv,
+      zone_patterns.csv, minimal_input.csv) were removed from the working tree;
+      app/simulate.py no longer feeds /api/samples, so the dashboard buttons and
+      the CSV on disk are the same file. The old planted-pattern tests are
+      replaced by tests on the real files, and the bad-row checks moved to
+      in-memory frames because no dataset carries a broken row now.
+      Overlaps H-03 and H-09 on tests/ and SPEC.md, so run it after them, one
+      task at a time.
+    definition_of_done: >
+      ls data/*.csv lists exactly the three *_synthetic.csv files; every
+      expected result in SPEC.md section 7 and data/README.md is what
+      analyze_incidents actually returns for the committed file; pytest tests
+      passes; and grep -rn "zone_patterns.csv\|minimal_input.csv" app/ tests/
+      finds nothing.
+    result: "ls data/*.csv -> exactly noDelayAlexData_2026_24000_synthetic.csv, stable_operations_2026_24000_synthetic.csv and highDelayAlex_2026_24000_synthetic.csv. /api/samples serves those files instead of regenerating samples; app/simulate.py deleted. pytest tests -q -> 65 passed. A verifier checked 86 claims in SPEC section 7 and data/README.md against the data and found 3 wrong (Brooklyn weekly p90 13.80 not 14.6-17.2, Staten Island normal p90 17.47 not 17.5, run lengths 8/16/8/14 not 8-16); all three corrected and re-verified: every claim matches the data."
