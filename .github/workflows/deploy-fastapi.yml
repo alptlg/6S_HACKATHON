@@ -12,6 +12,9 @@ on:
     branches: [main]
     paths:
       - '**.py'
+      - '**.html'
+      - '**.js'
+      - '**.css'
       - '**/requirements.txt'
       - '**/manifest.json'
       - '**/.python-version'
