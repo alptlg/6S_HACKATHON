@@ -19,112 +19,88 @@ same names for every variable.
 
 ## 2. User and use case (rubric: scope 5, user and use case 5)
 - **User:** The EMS / 911 operations supervisor who monitors ambulance response times across
-  the city's zones (the 5 NYC boroughs in our demo).
+  the 5 NYC boroughs.
 
-- **Decision the tool helps them make, and when:** During a shift (Live view) and in periodic
-  reviews (Daily / Weekly / Monthly / Yearly), the supervisor sees which zones are normal, which
-  need attention, whether a problem is one unusually late ambulance or a sustained process shift,
-  when it started, and which operating conditions (traffic, workload, unit availability,
-  call-to-dispatch delay) coincided with it, so they know where to investigate. The tool never
+- **Decision the tool helps them make, and when:** In periodic reviews (full year, last 6
+  months, last month, last week, last day), the supervisor sees for each borough whether
+  response times are statistically stable (I-MR chart), where the typical response sits with its
+  uncertainty (geometric mean and 95% CI), and whether the process can meet the NFPA 1710
+  8-minute target (Cpk). They also see which conditions (traffic, unit availability, priority)
+  the out-of-control calls coincided with, so they know where to investigate. The tool never
   assigns ambulances and does not manage individual dispatchers.
 
-- **Why this matches the prompt:** The prompt says dispatch-to-on-scene times vary widely across
-  zones while the 911 center only looks at monthly averages. Our tool monitors exactly that
-  interval per zone with statistical process control and percentiles, so outliers and shifts
-  that averages hide are flagged, with the zone and the conditions present.
+- **Why this matches the prompt:** The prompt says response times vary widely across zones
+  while the 911 center only looks at monthly averages. The tool applies statistical process
+  control and capability per borough, so it flags outliers and shifts that averages hide.
 
 ## 3. Inputs (rubric: minimal inputs 5)
 Only what this user can actually measure or already knows. Fewer is better; every input a user
 cannot measure costs points.
 
-The user uploads a CSV with one row per EMS incident. **Only 4 columns are required**; all of them
-are recorded automatically by a dispatch center's CAD (Computer-Aided Dispatch) system.
+The user picks a built-in scenario or uploads a CSV with one row per EMS incident. Every column
+comes from a dispatch center's CAD (Computer-Aided Dispatch) system.
 
 | Input | Required? | Type and units | Where the user gets it |
 |---|---|---|---|
-| `incident_id` | required | text, unique per incident | CAD incident number |
-| `dispatch_time` | required | date-time `YYYY-MM-DD HH:MM:SS` | CAD: unit assigned |
-| `on_scene_time` | required | date-time `YYYY-MM-DD HH:MM:SS` | CAD / crew "on scene" button |
-| `zone` | required | text (borough name) | CAD incident location |
-| `call_received` | optional | date-time `YYYY-MM-DD HH:MM:SS` | CAD / phone system: 911 call answered |
-| `traffic_level` | optional | Low / Medium / High | dispatcher entry or a traffic feed |
-| `available_units` | optional | integer, free ambulances in the zone at dispatch | CAD unit-status board |
+| `borough` or `zone` | required | text: Queens, Brooklyn, Manhattan, Bronx, Staten Island | CAD incident location |
+| `response_time_min` | required unless both times below are given | number, minutes | CAD report |
+| `call_received` | required if `response_time_min` is missing; also used for the time window | date-time `YYYY-MM-DD HH:MM:SS` | CAD / phone system: 911 call answered |
+| `on_scene_time` | required if `response_time_min` is missing | date-time `YYYY-MM-DD HH:MM:SS` | CAD / crew "on scene" button |
+| `traffic_level` | optional | Low / Medium / High (Gridlock counts as High) | dispatcher entry or a traffic feed |
+| `available_units` | optional | integer, free ambulances at dispatch | CAD unit-status board |
 | `priority` | optional | High / Medium / Low | dispatcher triage |
 
-Derived by the tool (never entered): `response_time_min`, `call_to_dispatch_min`, `time_of_day`
-(Overnight 0-5, Morning 6-9, Day 10-15, Evening peak 16-19, Night 20-23), `recent_call_volume`
-(calls dispatched in the same zone in the previous 15 minutes), percentiles, control limits,
-zone status. Without the optional columns the full statistics still run and the tool says
-"Operational contributing factors are unavailable in the uploaded data".
+Derived by the tool (never entered): response time when not given
+(`on_scene_time − call_received`, minutes), day and hour of the call, control limits,
+confidence interval and Cpk. Rows with a zone that is not one of the 5 boroughs, or a response
+time outside 0–300 minutes, are dropped. `incident_id`, `dispatch_time` and
+`simulated_special_cause` may be present but are not read.
 
 ## 4. The statistics, and why (rubric: valid QC analysis 25)
 Say the method in words before any code exists. Load the `stats-first-steering` skill first.
-- **Method:** `response_time_min = on_scene_time - dispatch_time` (minutes). Each zone gets an
-  Individuals and Moving Range (I-MR) control chart on `ln(response_time_min)`, in dispatch order.
-  **Each NYC borough's normal comes from real data:** 12 months of FDNY incidents (NYC Open Data,
-  *EMS Incident Dispatch Data*, dataset `76xm-jjuj`, Oct 2025 - Sep 2026, 1,442,227 valid
-  incidents; built by `data/nyc_normals.py`, stored in `app/nyc_normals.json`). From each
-  borough's calls in dispatch order: centerline = mean of the logs; UCL/LCL = centerline +/- 2.66
-  x average moving range; MR chart UCL = 3.267 x average moving range; normal p90; and the share
-  of normal calls above the UCL. Limits are shown in minutes with `exp()` and never move with the
-  review period. A zone that is not an NYC borough uses its own first 14 days instead. For the
-  chosen period (Live = last 3 h, Daily = 24 h, Weekly = 7 days, Monthly = 30 days, Yearly = 365
-  days, all ending at the latest call) the tool reports median, mean, SD, p90, p95, calls above
-  the UCL, a run rule on daily medians and a bootstrap interval for p90, and sets the status:
+- **Method:** all statistics are in `app/qc.py`, one function each.
+  1. **I-MR control chart on `ln(response_time_min)`** in file order (`compute_imr`):
+     centerline = mean of the logs; UCL/LCL = centerline ± 2.660 × average moving range (E₂ = 3/d₂,
+     d₂ = 1.128 for n = 2); MR chart UCL = 3.267 × average moving range (D₄), LCL = 0. Limits are
+     shown in minutes with `exp()`. Points above the UCL are flagged out of control (high); points
+     below the LCL are flagged as unusually fast (check the data).
+  2. **95% confidence interval** (`compute_confidence_interval`): a t-interval with n − 1 degrees
+     of freedom on the arithmetic mean, and on the mean of the logs, back-transformed to a
+     geometric-mean interval.
+  3. **Process capability** (`compute_capability`): one-sided
+     `Cpu = (ln 8 − μ_log) / (3 σ_log)` against the NFPA 1710 8-minute upper spec limit, reported
+     as Cpk. ≥ 1.33 capable, 1.0–1.33 marginally capable, < 1.0 not capable. With zero spread,
+     Cpk is +∞ if every call meets 8 minutes and −∞ if every call misses it.
+  4. **Descriptive statistics** (`compute_descriptive`): n, mean, median, SD, min, p25, p75, p90
+     (linear interpolation), max and geometric mean; NFPA flag if the mean or p90 exceeds 8 minutes.
+  5. `run_qc` runs all four and writes the alert and warning messages.
 
-  | Status | Rule (first match wins) |
-  |---|---|
-  | 🔴 Needs attention | calls above the UCL are beyond chance AND at least 3 AND at least 3x the borough's normal rate; OR 8 consecutive daily medians above the centerline (sustained shift); OR the 99% bootstrap interval of the period's p90 lies entirely above the borough's normal p90 + 5% |
-  | 🟡 Watch | calls above the UCL beyond chance (more than expected + 3 x sqrt(expected), expected = normal rate x calls in the period, at least 0.135%); OR the 95% bootstrap interval of p90 lies entirely above normal p90 + 5% |
-  | 🟢 Normal | none of the above |
-  | ⚪ Insufficient data | a non-borough zone with fewer than 20 calls in its first 14 days |
+  The dashboard and CLI apply these per borough and per time window (full year, last 6 months,
+  last month, last week or last day, counted back from the latest call).
 
-  Bootstrap: 1,000 resamples with a fixed seed; the p90 test needs at least 20 calls in the
-  period. 99% for Red is Bonferroni for 5 boroughs (familywise 95%). The +5% is a practical
-  margin: with thousands of calls, a p90 a few seconds above normal is "significant" but does not
-  matter operationally.
-
-  For a flagged zone, the period's conditions are compared with the data's own first 14 days (the
-  NYC data has no traffic or unit counts): Workload HIGH if median `recent_call_volume` > that
-  baseline's 75th percentile; Traffic HIGH if the share of High-traffic calls >= baseline share +
-  15 points; Units LOW if median `available_units` < baseline 25th percentile; Call-to-dispatch
-  LONG if median `call_to_dispatch_min` > baseline 75th percentile. The pattern is Travel
-  conditions (traffic), High-demand pressure (workload), Resource constraint (units and/or
-  call-to-dispatch), Demand / resource pressure (workload + resource), Combined operational stress
-  (traffic + workload or resource), or Unexplained special cause (abnormal but no condition
-  flagged: manual incident review).
-
-- **Why it fits the use case:** The I-MR chart separates one unusually long response (a single
-  point above the limit: Watch at most) from a borough whose whole process has shifted (many
-  points above the limit, a run of high days, or a significantly higher p90: Needs attention).
-  Comparing each borough with its own real 12-month normal replaces a one-size-fits-all target:
-  real NYC p90s are 17-22 minutes and differ by borough.
+- **Why it fits the use case:** The I-MR chart separates single unusually long responses (points
+  above the UCL) from ordinary variation. The CI shows how precisely the typical response time is
+  known. Cpk turns "how often do we miss 8 minutes" into one number a supervisor can track.
 
 - **Assumptions and how the tool checks them:** Response times are positive and right-skewed, so
-  the chart uses the log; after the log the data is still heavier-tailed than normal (0.75-1.7% of
-  real NYC calls are above the UCL instead of 0.135%), so "expected by chance" uses each
-  borough's real rate. The last 12 months are assumed to describe normal operations, including
-  seasons. Calls are treated as independent; workload surges can cluster long responses, which the
-  run rule and the conditions panel make visible. Validation drops rows with missing or unreadable
-  times, duplicate `incident_id`, or `on_scene_time` not after `dispatch_time`, and warns about
-  each; `call_received` after `dispatch_time` is ignored with a warning; responses over 120 minutes
-  are kept and flagged for review. Wording is always "associated with / coincided with", never
-  "caused".
+  every statistic uses the log (lognormal assumption); non-positive values are rejected. Calls
+  are treated as independent and in time order. The I-MR limits come from the same data being
+  charted (Phase I), so a borough whose whole year is slow has wide limits and few points out of
+  control: Cpk, not the chart, is what shows that. Cpk on the log scale assumes the logs are
+  roughly normal.
 
-- **Known-answer check:** For five chronological response times of [6, 8, 7, 9, 10] minutes, the
-  mean is 8.0 minutes. The consecutive moving ranges are [2, 1, 2, 1], giving an average moving
-  range of 1.5 minutes. Using the standard I-MR chart constant of 2.66, the Individuals chart has
-  a centerline of 8.0 minutes, an upper control limit of 11.99 minutes, and a lower control limit
-  of 4.01 minutes. The Python statistical function must reproduce these values within rounding
-  tolerance.
-  - **Log-scale chart (the one the tool uses):** ln = [1.7918, 2.0794, 1.9459, 2.1972, 2.3026];
-    mean of logs = 2.0634; moving ranges = [0.2877, 0.1335, 0.2513, 0.1054], average 0.1945.
-    UCL = 2.0634 + 2.66 x 0.1945 = 2.5807, LCL = 1.5461. In minutes: centerline 7.87, UCL 13.21,
-    LCL 4.69. Moving Range chart: UCL = 3.267 x 0.1945 = 0.6353 (log units), LCL = 0.
-  - **90th percentile:** of [6, 8, 7, 9, 10] = 9.6 minutes (linear interpolation).
-  - **Response time from timestamps:** dispatch 17:42:10, on scene 17:51:55 -> 9.75 minutes.
-  - **Workload:** calls at 10:00, 10:05, 10:14, 10:20 in one zone -> `recent_call_volume`
-    = 0, 1, 2, 2 (the 10:00 call is 20 minutes before 10:20).
+- **Known-answer check:** five chronological response times [6, 8, 7, 9, 10] minutes, worked by
+  hand in `tests/test_qc.py`:
+  - **I-MR (log):** ln = [1.7918, 2.0794, 1.9459, 2.1972, 2.3026]; centerline 2.0634; moving
+    ranges [0.2877, 0.1335, 0.2513, 0.1054], average 0.1945; UCL 2.5807, LCL 1.5461. In minutes:
+    centerline 7.87, UCL 13.21, LCL 4.69. MR UCL = 3.267 × 0.1945 = 0.6353 (log units).
+  - **95% CI:** s(ln) = 0.2018, t(0.975, 4) = 2.7764; geometric mean CI [6.127, 10.115] min;
+    arithmetic CI 8 ± 1.963 = [6.037, 9.963] min.
+  - **Cpk:** (ln 8 − 2.0634) / (3 × 0.2018) = 0.0265 (not capable).
+  - **p90:** 9.6 minutes (linear interpolation); NFPA flag on.
+  - **Degenerate cases:** constant [5, 5, 5, 5] gives MR̄ = 0, UCL = LCL = 5 min, Cpk +∞;
+    constant [10, 10, 10, 10] gives Cpk −∞; n = 1, an empty list or any value ≤ 0 raises an error
+    (HTTP 422 from the API).
 
 Fixed for every team:
 - The statistic lives in **one plain, tested function** (`app/qc.py` or `app/qc.R`). The API, app or
@@ -132,11 +108,16 @@ Fixed for every team:
 - Every statistic has a test against a known answer and a degenerate case (constant data, n = 1, missing values).
 - You can explain every number the tool prints. If you cannot, it is not done.
 
+**Known gap:** the dashboard (`app/static/index.html`) still computes these statistics in
+JavaScript on a 4,800-call sample instead of calling `POST /api/qc`, which breaks the "no
+statistics inside UI code" rule. `app/qc.py` is the tested reference.
+
 ## 5. Delivery (rubric: working tool 25)
 
-- **Stack:** Python REST API using FastAPI, with Pandas and NumPy for the statistics. **Dashboard:**
-  FastAPI serves one plain HTML page that draws the charts with Chart.js loaded from a CDN, so no
-  Node.js or React build is needed and the API and page deploy as one app.
+- **Stack:** Python 3.12 with FastAPI, NumPy and SciPy. `app/main.py` (`main:app`) serves the
+  dashboard at `/`, `GET /health` and `POST /api/qc`. The dashboard is one self-contained HTML
+  page that draws its charts with Chart.js from a CDN, so no Node.js or React build is needed.
+  `app/cli.py` prints the same report in a terminal.
 
 - **Starting demo:** `demos/fastapi/`, copied into `app/`.
 
@@ -150,20 +131,19 @@ Fixed for every team:
 
 ## 6. Outputs
 
-- **What the user sees:** a zone-first dashboard.
-  1. **Header and controls:** load a sample or upload a CSV; review period
-     `[Live | Daily | Weekly | Monthly | Yearly]`.
-  2. **Zone cards (one per zone):** status (🟢 Normal / 🟡 Watch / 🔴 Needs attention), p90 in
-     minutes next to the borough's normal p90, the main statistical reason, the pattern, and Workload / Traffic / Units /
-     Call-to-dispatch as HIGH / LOW / LONG / Normal. How to read it: red means the zone's response
-     process is outside its normal behavior in this period, not just one late call.
-  3. **Zone detail (click a card):** all statistical reasons, when the shift started, period vs
-     normal table (calls, median, p90, p95, limits, calls above UCL vs expected, p90 bootstrap
-     intervals), the
-     conditions table vs baseline, the pattern, the I-MR chart with calls above the UCL in red,
-     and the MR chart.
-  4. **Incident logging form:** add one incident; it is kept for the session only and can be
-     downloaded as CSV (no database).
+- **What the user sees:** a borough-first dashboard.
+  1. **Home:** scenario buttons (Stable Operations, High Delay, No Delay) and Upload Custom CSV;
+     time window `[Full Year | Last 6 Mo | Last 1 Mo | Last Week | Last Day]`; one card per
+     borough with geometric mean and p90; average response by traffic level, unit availability
+     and priority across boroughs.
+  2. **Borough page (click a borough):** borough map; summary tiles (mean, geometric mean, p90,
+     incidents, Cpk with USL = 8), each rated Good / Fair / Bad; histogram; average response by
+     priority and by traffic; the I-chart on ln(RT) with out-of-control points in red and a
+     geometric / arithmetic centerline toggle; the MR chart; out-of-control calls broken down by
+     condition; overall vs out-of-control average response; the 95% CI on the geometric mean.
+  3. **API:** `POST /api/qc` returns the full `run_qc` report as JSON.
+  4. **CLI:** `python app/cli.py --scenario stable --breakdown` prints the report and a
+     per-borough table.
 
 ## 7. Test datasets and codebook (rubric: demo 10, datasets 5, codebook 5)
 
@@ -171,21 +151,18 @@ Fixed for every team:
 
 `data/README.md` is the codebook: every file, every column with units, and what it would take to collect this data for real.
 
-- **Datasets** (simulated by `app/simulate.py` with fixed seeds: each borough's response times
-  are drawn from its real 12-month NYC distribution, call volume follows NYC's hour-of-day pattern
-  at 25%; problems are planted from day 40):
-  1. `stable_operations.csv`: 60 days, 5 boroughs, nothing planted. Expected: all zones 🟢 in
-     every period.
-  2. `zone_patterns.csv`: 60 days; from day 40 Staten Island normal, Queens high traffic, Bronx
-     2.5x call volume + 0-2 units, Brooklyn all three, Manhattan normal conditions but 60 isolated
-     extreme delays. Expected (Weekly and Monthly): Staten Island 🟢; Queens 🔴 Travel
-     conditions; Bronx 🔴 Demand / resource pressure; Brooklyn 🔴 Combined operational stress;
-     Manhattan 🟡 Unexplained special cause.
-  3. `minimal_input.csv`: only the 4 required columns, 21 days, 3 boroughs plus two zones that are
-     not boroughs ("Harbor Unit" uses its own first 14 days; "Ferry Terminal" has only 3 calls),
-     with planted data problems (2 missing times, 2 on-scene before dispatch, 1 duplicate id).
-     Expected: a warning for every bad row and for each non-borough zone, Ferry Terminal ⚪
-     Insufficient data, the other zones 🟢, "factors unavailable" message, no crash.
+- **Datasets** (synthetic, 24,000 calls each, 2026-01-01 to 2026-12-31, 5 boroughs; the
+  `simulated_special_cause` column labels conditions such as rush hour, winter weather and
+  holiday traffic). Full-year numbers from `python app/cli.py --scenario <name>`:
+
+  | File | Scenario | Geo mean (95% CI) | p90 | Cpk |
+  |---|---|---|---|---|
+  | `stable_operations_2026_24000_synthetic.csv` | Stable Operations | 11.12 (11.03–11.20) | 23.23 | −0.18 |
+  | `highDelayAlex_2026_24000_synthetic.csv` | High Delay | 19.58 (19.41–19.76) | 48.40 | −0.43 |
+  | `noDelayAlexData_2026_24000_synthetic.csv` | No Delay | 7.71 (7.66–7.77) | 16.30 | 0.02 |
+
+  All three scenarios are "not capable" against 8 minutes. No Delay is the only one whose
+  geometric mean is under 8 minutes.
 
 ## 8. Documentation and reproducibility (rubric: docs 10, public repo 5)
 - `README.md` says what the tool does, for whom, every input and parameter, how to run it in one
@@ -197,6 +174,7 @@ Fixed for every team:
 What we will NOT build, so nobody (human or agent) builds it by accident.
 
 - Default: logins, databases, real customer data, a second statistic before the first one is tested.
+- Zones other than the 5 NYC boroughs.
 - Ambulance assignment or dispatch recommendations; managing individual dispatchers.
 - Route optimization, live GPS, Google Maps or any live external API.
 - Hospital selection or hospital offload modelling.
