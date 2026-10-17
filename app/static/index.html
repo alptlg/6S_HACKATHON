@@ -82,10 +82,9 @@ canvas{max-height:180px}
 .alert-bar.warn{background:#fef5e7;border-left:4px solid var(--fair);color:#9c6800}
 .alert-bar.crit{background:#fdecea;border-left:4px solid var(--bad);color:#922b21}
 
-.bp-body{display:grid;grid-template-columns:1fr 1.3fr;gap:18px;padding:14px 48px 0;align-items:start}
-.bp-map-wrap{border-radius:4px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)}
-.bp-map-wrap img{width:100%;display:block}
-.stats-tile{background:var(--card);border-radius:8px;box-shadow:0 1px 8px rgba(0,0,0,.06);padding:14px;margin-top:12px}
+/* ── BOROUGH PAGE BODY (stats above map) ── */
+.bp-top{padding:14px 48px 0}
+.stats-tile{background:var(--card);border-radius:8px;box-shadow:0 1px 8px rgba(0,0,0,.06);padding:14px;margin-bottom:12px}
 .stat-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:4px}
 .si{display:flex;flex-direction:column}
 .sv{font-size:1.8rem;font-weight:700;line-height:1}
@@ -93,16 +92,24 @@ canvas{max-height:180px}
 .badge{display:inline-block;font-family:Arial,sans-serif;font-size:.56rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;padding:2px 7px;border-radius:999px;margin-top:3px;width:fit-content}
 .badge.good{background:#e8f8f0;color:#1a7a45}.badge.fair{background:#fef5e7;color:#a0660a}.badge.bad{background:#fdecea;color:#c0392b}
 
+/* Histogram full-width above the map/scatter split */
+.bp-hist-row{padding:0 48px;margin-bottom:0}
+.bp-hist-row .gtile{margin-top:0}
+
+/* Map + scatter columns */
+.bp-body{display:grid;grid-template-columns:1fr 1.3fr;gap:18px;padding:12px 48px 0;align-items:start}
+.bp-map-wrap{border-radius:4px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08)}
+.bp-map-wrap img{width:100%;display:block}
 .bp-right>div{background:var(--card);border-radius:8px;box-shadow:0 1px 8px rgba(0,0,0,.06);padding:14px;margin-bottom:12px}
-.chart-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.chart-2>div{background:var(--card);border-radius:8px;box-shadow:0 1px 8px rgba(0,0,0,.06);padding:12px}
+
 
 .bp-charts{padding:0 48px 28px}
 .gtile{background:var(--card);border-radius:8px;box-shadow:0 1px 8px rgba(0,0,0,.06);padding:16px;margin-top:12px}
-.chart-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:12px}
-.chart-3>.gtile{margin-top:0}
+.chart-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.chart-2>.gtile{margin-top:0}
 .imr-canvas{max-height:200px!important}
 .mr-canvas{max-height:130px!important}
+@media(max-width:700px){.bp-body{grid-template-columns:1fr}.bp-top,.bp-hist-row,.bp-charts{padding-left:16px;padding-right:16px}.chart-2{grid-template-columns:1fr}}
 
 /* SPC controls */
 .spc-ctrl{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
@@ -132,6 +139,35 @@ canvas{max-height:180px}
 .no-data{text-align:center;padding:40px;font-family:Arial,sans-serif;font-size:.9rem;color:var(--light)}
 
 footer{text-align:center;font-family:Arial,sans-serif;font-size:.66rem;color:var(--light);padding:10px 0 20px;letter-spacing:.08em;text-transform:uppercase}
+
+/* ── ABOUT PAGE ── */
+.about-wrap{max-width:820px;margin:0 auto;padding:40px 24px 60px;width:100%}
+.about-hero{text-align:center;padding-bottom:36px;border-bottom:2px solid var(--border);margin-bottom:36px}
+.about-hero h1{font-size:2.6rem;font-weight:700;letter-spacing:-1px;line-height:1.1}
+.about-hero p{margin-top:10px;font-family:Arial,sans-serif;font-size:.78rem;letter-spacing:.2em;text-transform:uppercase;color:var(--mid)}
+.about-section{margin-bottom:36px}
+.about-section h2{font-size:1.25rem;font-weight:700;letter-spacing:-.3px;margin-bottom:12px;padding-bottom:6px;border-bottom:1.5px solid var(--border)}
+.about-section p,.about-section li{font-family:Arial,sans-serif;font-size:.88rem;line-height:1.75;color:var(--mid)}
+.about-section ul,.about-section ol{padding-left:20px;margin-top:6px}
+.about-section li{margin-bottom:4px}
+.about-section strong{color:var(--dark)}
+.about-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+.about-card{background:var(--card);border:1.5px solid var(--border);border-radius:10px;padding:16px 18px}
+.about-card h3{font-family:Arial,sans-serif;font-size:.7rem;letter-spacing:.18em;text-transform:uppercase;color:var(--light);margin-bottom:8px}
+.about-card p{font-family:Arial,sans-serif;font-size:.84rem;line-height:1.65;color:var(--mid)}
+.about-card p strong{color:var(--dark)}
+.stat-formula{background:var(--card);border-left:4px solid var(--accent);border-radius:0 8px 8px 0;padding:12px 16px;margin:10px 0;font-family:'Courier New',monospace;font-size:.8rem;line-height:1.7;color:var(--dark)}
+.color-key{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px}
+.ck-item{display:flex;align-items:center;gap:8px;font-family:Arial,sans-serif;font-size:.84rem;color:var(--mid)}
+.ck-dot{width:14px;height:14px;border-radius:50%;flex-shrink:0}
+.about-table{width:100%;border-collapse:collapse;margin-top:12px;font-family:Arial,sans-serif;font-size:.83rem}
+.about-table th{text-align:left;font-size:.65rem;letter-spacing:.14em;text-transform:uppercase;color:var(--light);padding:8px 10px;border-bottom:1.5px solid var(--border)}
+.about-table td{padding:9px 10px;border-bottom:1px solid var(--border);color:var(--mid);vertical-align:top;line-height:1.55}
+.about-table td strong{color:var(--dark)}
+.about-back{display:flex;justify-content:center;padding:20px 0 0}
+.about-back button{background:var(--pill);border:1.5px solid var(--border);border-radius:999px;padding:10px 28px;font-family:Arial,sans-serif;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--mid);cursor:pointer;transition:all .14s}
+.about-back button:hover{background:var(--dark);color:#fff;border-color:var(--dark)}
+@media(max-width:600px){.about-grid{grid-template-columns:1fr}.about-wrap{padding:24px 16px 48px}}
 </style>
 </head>
 <body>
@@ -206,6 +242,7 @@ available_units, priority, simulated_special_cause</div>
     <button data-zone="Manhattan">Manhattan</button>
     <button data-zone="Bronx">Bronx</button>
     <button data-zone="Staten Island">Staten Island</button>
+    <button id="aboutBtnHome" onclick="showAbout()">ⓘ About</button>
   </div>
 </div>
 
@@ -244,22 +281,22 @@ available_units, priority, simulated_special_cause</div>
   <div class="bp-body">
     <div>
       <div class="bp-map-wrap"><img id="boroughMap" src="" alt="Borough map"></div>
-      <div class="stats-tile">
+    </div>
+    <div class="bp-right">
+      <div class="stats-tile" style="margin-bottom:12px">
         <div class="tlabel">Response Time Summary</div>
         <div class="stat-row">
           <div class="si"><span class="sv" id="svMean">—</span><span class="sl">Mean (min)</span><span class="badge" id="bdgMean">—</span></div>
           <div class="si"><span class="sv" id="svGeo">—</span><span class="sl">Geo Mean</span><span class="badge" id="bdgGeo">—</span></div>
           <div class="si"><span class="sv" id="svP90">—</span><span class="sl">90th Pctile</span><span class="badge" id="bdgP90">—</span></div>
           <div class="si"><span class="sv" id="svN">—</span><span class="sl">Incidents</span></div>
-          <div class="si"><span class="sv" id="svCpk">—</span><span class="sl">Cpk (USL=8)</span><span class="badge" id="bdgCpk">—</span></div>
+          <div class="si"><span class="sv" id="svCpk">—</span><span class="sl">Cpk (USL=15)</span><span class="badge" id="bdgCpk">—</span></div>
         </div>
       </div>
-    </div>
-    <div class="bp-right">
       <div><div class="tlabel">Response Time Distribution</div><canvas id="chartHist"></canvas></div>
       <div class="chart-2">
-        <div><div class="tlabel">Avg RT by Priority</div><canvas id="chartPriority"></canvas></div>
-        <div><div class="tlabel">Avg RT by Traffic</div><canvas id="chartTraffic"></canvas></div>
+        <div><div class="tlabel">Bad RT Attribution by Condition</div><canvas id="chartOOCAttrib"></canvas></div>
+        <div><div class="tlabel">Overall vs Bad RT Avg Response</div><canvas id="chartOOCvAll"></canvas></div>
       </div>
     </div>
   </div>
@@ -286,21 +323,190 @@ available_units, priority, simulated_special_cause</div>
       <canvas id="chartMR" class="mr-canvas"></canvas>
       <div class="spc-note" id="mrNote">—</div>
     </div>
-
-    <div class="chart-3">
-      <div class="gtile"><div class="tlabel">OOC Attribution by Condition</div><canvas id="chartOOCAttrib"></canvas></div>
-      <div class="gtile"><div class="tlabel">Overall vs OOC Avg Response</div><canvas id="chartOOCvAll"></canvas></div>
-      <div class="gtile"><div class="tlabel">95% CI — Geometric Mean</div><canvas id="chartCI"></canvas></div>
-    </div>
   </div>
 
   <div class="bp-nav" id="bpNav">
     <button class="back-btn" id="homeBtn">← Home</button>
+    <button onclick="showAbout()" style="background:transparent;border:1.5px solid #ccc;color:var(--mid)">ⓘ About</button>
     <button data-zone="Queens">Queens</button>
     <button data-zone="Brooklyn">Brooklyn</button>
     <button data-zone="Manhattan">Manhattan</button>
     <button data-zone="Bronx">Bronx</button>
     <button data-zone="Staten Island">Staten Island</button>
+  </div>
+  <footer>Cornell SYSEN 5300 · Six Sigma Hackathon · Team Chiblings · 2026</footer>
+</div>
+
+<!-- ══════ ABOUT PAGE ══════ -->
+<div id="about-page" class="page">
+  <div class="about-wrap">
+
+    <div class="about-hero">
+      <h1>How to Use This Dashboard</h1>
+      <p>Six Sigma Quality Dashboard · NYC EMS Response Times · Cornell SYSEN 5300</p>
+    </div>
+
+    <!-- 1. Overview -->
+    <div class="about-section">
+      <h2>What This Dashboard Does</h2>
+      <p>This tool applies <strong>Six Sigma Statistical Process Control (SPC)</strong> to NYC Emergency Medical Services response time data. It lets you visualise whether EMS response times are <em>in control</em>, how far they fall from the NFPA 1710 benchmark, and which boroughs and conditions drive variation.</p>
+      <p style="margin-top:8px">You can load one of three pre-built scenarios, upload your own CSV, and filter by time window or borough — all without writing any code.</p>
+    </div>
+
+    <!-- 2. Getting started -->
+    <div class="about-section">
+      <h2>Getting Started</h2>
+      <ol>
+        <li><strong>Choose a scenario</strong> at the top of the page — Stable Operations, High Delay, or No Delay — to load a full year of NYC EMS data.</li>
+        <li><strong>Pick a time window</strong>: Full Year, Last 6 Mo, Last 1 Mo, Last Week, or Last Day. All charts update instantly.</li>
+        <li><strong>Click any borough card</strong> on the home screen to drill into that borough's full SPC analysis.</li>
+        <li><strong>Toggle the centerline</strong> on the I-MR chart between Geometric Mean (recommended for lognormal data) and Arithmetic Mean.</li>
+        <li><strong>Upload your own CSV</strong> using the Upload button — see the CSV Format section below for what columns are expected.</li>
+      </ol>
+    </div>
+
+    <!-- 3. Response time color coding -->
+    <div class="about-section">
+      <h2>Response Time Categories</h2>
+      <p>Every data point is classified into one of three tiers based on operational benchmarks for NYC EMS performance:</p>
+      <div class="color-key">
+        <div class="ck-item"><div class="ck-dot" style="background:#27ae60"></div><strong>Good — 10.9 minutes or under</strong></div>
+        <div class="ck-item"><div class="ck-dot" style="background:#e67e22"></div><strong>Fair — 11 to 15 minutes</strong></div>
+        <div class="ck-item"><div class="ck-dot" style="background:#e74c3c"></div><strong>Bad — more than 15 minutes</strong></div>
+      </div>
+      <p style="margin-top:12px">The borough cards on the home screen are colour-coded by the mean response time category. The borough detail page breaks the full distribution down in the histogram, with bars coloured green, amber, or red by bin.</p>
+    </div>
+
+    <!-- 4. Statistics explained -->
+    <div class="about-section">
+      <h2>Statistics Explained</h2>
+
+      <div class="about-grid">
+        <div class="about-card">
+          <h3>Geometric Mean</h3>
+          <p>Response times follow a <strong>lognormal distribution</strong> — they have a hard floor of zero and a long right tail of slow calls. The geometric mean is the anti-log of the average of the log-transformed values, making it the best single summary of the centre for this type of data.</p>
+          <div class="stat-formula">Geo Mean = exp( mean(ln RT) )</div>
+        </div>
+        <div class="about-card">
+          <h3>Arithmetic Mean</h3>
+          <p>The ordinary average of response times in minutes. You can switch the I-MR chart's centerline between geometric and arithmetic mean using the toggle above the chart. The arithmetic mean is pulled upward by extreme slow calls more than the geometric mean is.</p>
+          <div class="stat-formula">Arith Mean = Σ(RT) / n</div>
+        </div>
+        <div class="about-card">
+          <h3>90th Percentile (p90)</h3>
+          <p>The response time below which 90% of all calls were handled. A useful companion to the mean: a low mean with a high p90 signals that most calls are fast but a tail of extremely slow calls exists.</p>
+        </div>
+        <div class="about-card">
+          <h3>95% Confidence Interval</h3>
+          <p>The range within which the true geometric mean likely falls, calculated on the log scale and back-transformed. Wider intervals mean less data or more variation.</p>
+          <div class="stat-formula">CI = [exp(μ_log ± t·SE_log)]</div>
+        </div>
+      </div>
+
+      <h3 style="margin:24px 0 10px;font-size:1rem;font-weight:700">I-MR Control Chart</h3>
+      <p>The <strong>Individuals &amp; Moving Range (I-MR)</strong> chart is the core Six Sigma tool on the borough detail page. It plots each call's log-transformed response time in sequence, with control limits that define the expected range of a stable process.</p>
+      <ul style="margin-top:8px">
+        <li><strong>CL (Centerline)</strong> — the geometric mean (or arithmetic mean if toggled) of all calls in the window</li>
+        <li><strong>UCL (Upper Control Limit)</strong> — three standard deviations above the mean, estimated via the average moving range</li>
+        <li><strong>LCL (Lower Control Limit)</strong> — three standard deviations below the mean</li>
+        <li><strong>Red points</strong> — out-of-control (OOC) calls that exceeded the UCL, signalling a special-cause delay</li>
+      </ul>
+      <div class="stat-formula">UCL = μ_log + E₂ × MR̄   (E₂ = 2.660)
+LCL = μ_log − E₂ × MR̄
+MR UCL = D₄ × MR̄       (D₄ = 3.267)</div>
+      <p style="margin-top:8px">E₂ and D₄ are standard control chart constants for a sample size of 2 (adjacent pairs). The Moving Range chart beneath it shows the absolute difference between consecutive log response times — a spike there indicates a sudden shift in variation.</p>
+
+      <h3 style="margin:24px 0 10px;font-size:1rem;font-weight:700">Process Capability (Cpk)</h3>
+      <p>Cpk measures how well the process fits within the upper specification limit (USL) of <strong>15 minutes</strong> — the threshold between Fair and Bad response times. It is calculated on the log scale (one-sided Cpu) because the distribution is lognormal. A low Cpk does not mean the data is wrong; it means the process mean is close to the USL and variation is high relative to that headroom.</p>
+      <div class="stat-formula">Cpk = ( ln(USL) − μ_log ) / ( 3 × σ_log )   USL = 15.0 min</div>
+      <table class="about-table">
+        <thead><tr><th>Cpk value</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><strong>≥ 1.33</strong></td><td>Highly capable — process stays well under 15 min ✅</td></tr>
+          <tr><td><strong>1.00 – 1.33</strong></td><td>Capable — occasional calls reach the 15-min limit ⚠️</td></tr>
+          <tr><td><strong>0.50 – 1.00</strong></td><td>Marginal — mean is within one sigma of the USL; common for EMS</td></tr>
+          <tr><td><strong>&lt; 0.50</strong></td><td>Not capable — mean is very close to or above 15 min ❌</td></tr>
+          <tr><td><strong>Negative</strong></td><td>Process centre already exceeds the USL — average call is over 15 min</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:10px">EMS response times are inherently variable and affected by factors outside the system's control (traffic, call density, geography). A Cpk of 0.2–0.6 is typical for urban EMS and signals a process that needs improvement, not a broken calculation.</p>
+    </div>
+
+    <!-- 5. Scenarios -->
+    <div class="about-section">
+      <h2>Built-in Scenarios</h2>
+      <div class="about-grid">
+        <div class="about-card">
+          <h3>📊 Stable Operations</h3>
+          <p>Normal day-to-day EMS activity with typical variation. <strong>Geometric mean ≈ 11–13 min.</strong> Most boroughs fall in the Fair range; expect Cpk below 1.0 because the mean sits close to the 15-min USL.</p>
+        </div>
+        <div class="about-card">
+          <h3>🔴 High Delay</h3>
+          <p>Simulates surge conditions — storms, mass casualty events, or unit shortages. <strong>Geometric mean ≈ 18–22 min.</strong> Most boroughs flag Bad; expect many OOC points and a negative Cpk.</p>
+        </div>
+        <div class="about-card">
+          <h3>🟢 No Delay</h3>
+          <p>Ideal conditions with low traffic and high unit availability. <strong>Geometric mean ≈ 7–9 min.</strong> All boroughs flag Good; Cpk ≥ 1.0 — the process is comfortably inside the 15-min limit.</p>
+        </div>
+        <div class="about-card">
+          <h3>⬆ Custom CSV</h3>
+          <p>Upload your own data file. The tool will compute all statistics and charts automatically. See the CSV Format section for required columns.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. CSV format -->
+    <div class="about-section">
+      <h2>Custom CSV Format</h2>
+      <p>Your file must include the following columns (column names are case-insensitive; spaces become underscores):</p>
+      <table class="about-table">
+        <thead><tr><th>Column</th><th>Required?</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><strong>borough</strong> or <strong>zone</strong></td><td>✅ Yes</td><td>Must match one of: Queens, Brooklyn, Manhattan, Bronx, Staten Island</td></tr>
+          <tr><td><strong>response_time_min</strong></td><td>✅ (or timestamps)</td><td>Response time in minutes as a decimal number</td></tr>
+          <tr><td><strong>call_received</strong></td><td>If no response_time_min</td><td>ISO 8601 datetime — e.g. 2026-03-15 08:42:00</td></tr>
+          <tr><td><strong>on_scene_time</strong></td><td>If no response_time_min</td><td>ISO 8601 datetime. RT is computed as on_scene_time − call_received</td></tr>
+          <tr><td><strong>traffic_level</strong></td><td>Optional</td><td>Low · Medium · High · Gridlock (Gridlock is treated as High)</td></tr>
+          <tr><td><strong>available_units</strong></td><td>Optional</td><td>Integer — number of EMS units available at dispatch</td></tr>
+          <tr><td><strong>priority</strong></td><td>Optional</td><td>High · Medium · Low</td></tr>
+        </tbody>
+      </table>
+      <p style="margin-top:10px">Rows with response times ≤ 0 or &gt; 300 minutes are automatically excluded. Fewer than 4 valid rows for a borough will show no chart for that borough.</p>
+    </div>
+
+    <!-- 7. Data fields -->
+    <div class="about-section">
+      <h2>What the Dashboard Shows</h2>
+      <table class="about-table">
+        <thead><tr><th>Element</th><th>Where</th><th>What it means</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Borough cards</strong></td><td>Home</td><td>Geometric mean, p90, incident count, and a Good/Fair/Bad badge for each of the five NYC boroughs</td></tr>
+          <tr><td><strong>Traffic / Units / Priority charts</strong></td><td>Home</td><td>Average response time broken down by traffic level, available unit count, and call priority — shows which operational factors drive slower responses</td></tr>
+          <tr><td><strong>Borough map</strong></td><td>Borough page</td><td>Colour-coded zone map showing which sub-areas of the borough the data covers</td></tr>
+          <tr><td><strong>Alert bar</strong></td><td>Borough page</td><td>A red / amber / green summary of whether this borough's mean falls in the Bad (&gt;15 min), Fair (11–15 min), or Good (≤10.9 min) range, plus the Cpk value</td></tr>
+          <tr><td><strong>I-MR chart</strong></td><td>Borough page</td><td>Individual response times in sequence with UCL / CL / LCL. Out-of-control points are red. The 15-min Bad threshold is shown as a reference line.</td></tr>
+          <tr><td><strong>MR chart</strong></td><td>Borough page</td><td>Consecutive differences between log response times — spikes indicate sudden shifts in variation</td></tr>
+          <tr><td><strong>Histogram</strong></td><td>Borough page</td><td>Distribution of response times coloured by Good / Fair / Bad category</td></tr>
+          <tr><td><strong>Priority / Traffic / Hour charts</strong></td><td>Borough page</td><td>Same borough's data stratified by priority, traffic, and hour of day</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 8. Standards reference -->
+    <div class="about-section">
+      <h2>Standards &amp; References</h2>
+      <ul>
+        <li><strong>NFPA 1710</strong> — Standard for the Organization and Deployment of Fire Suppression Operations, EMS, and Special Operations to the Public by Career Fire Departments. The official target is 4 minutes turnout + 4 minutes travel for a total of 8 minutes; this dashboard uses an adapted USL of 15 minutes reflecting NYC operational realities and the Fair/Bad threshold.</li>
+        <li><strong>Six Sigma I-MR Chart</strong> — Wheeler &amp; Chambers, <em>Understanding Statistical Process Control</em> (SPC Press). E₂ = 2.660 and D₄ = 3.267 are standard constants for n = 2 subgroups.</li>
+        <li><strong>Lognormal SPC</strong> — Response times are lognormally distributed; all control limits are computed on ln(RT) and back-transformed to minutes for display.</li>
+        <li><strong>Cornell SYSEN 5300</strong> — Systems Engineering and Six Sigma Quality course, Fall 2026.</li>
+      </ul>
+    </div>
+
+    <div class="about-back">
+      <button onclick="showPage('home');renderHome()">← Back to Dashboard</button>
+    </div>
+
   </div>
   <footer>Cornell SYSEN 5300 · Six Sigma Hackathon · Team Chiblings · 2026</footer>
 </div>
@@ -336,7 +542,7 @@ const MAP_IMAGES = {
 // ══════════════════════════════════════════════════
 const ZONE_NAMES = ['Queens','Brooklyn','Manhattan','Bronx','Staten Island'];
 const TRF_LABELS = ['Low','Medium','High'];
-const E2=2.660, D4=3.267, NFPA_USL=8.0;
+const E2=2.660, D4=3.267, NFPA_USL=15.0;
 const C = {good:'#27ae60',fair:'#e67e22',bad:'#e74c3c',ucl:'#c0392b',lcl:'#2980b9',cl:'#2c3e50',mr:'#8e44ad'};
 const GRID = {color:'rgba(0,0,0,0.055)'};
 const TF  = {size:10,family:'Arial,sans-serif'};
@@ -457,14 +663,14 @@ function computeStats(rows) {
   const geoCILow=Math.exp(logCL-tc*logSE), geoCIHigh=Math.exp(logCL+tc*logSE);
   const cpk=logSig>0?(Math.log(NFPA_USL)-logCL)/(3*logSig):Infinity;
   const p90=pctile(sorted,0.90);
-  const good=rt.filter(v=>v<8).length, fair=rt.filter(v=>v>=8&&v<15).length, bad=rt.filter(v=>v>=15).length;
+  const good=rt.filter(v=>v<=10.9).length, fair=rt.filter(v=>v>10.9&&v<=15).length, bad=rt.filter(v=>v>15).length;
   return {n,rt,sorted,ln,mu:arithCL,p90,geoMean,geoCILow,geoCIHigh,cpk,good,fair,bad,
     logCL,logUCL,logLCL,avgMR,mrUCL,logMR,
     arithCL,arithUCL,arithLCL,arithAvgMR,arithMrUCL,arithMR,
     clMin:geoMean,uclMin:Math.exp(logUCL),lclMin:Math.exp(logLCL)};
 }
 
-const rating = v => v<8?'good':v<15?'fair':'bad';
+const rating = v => v<=10.9?'good':v<=15?'fair':'bad';
 const RLABELS = {good:'Good',fair:'Fair',bad:'Bad'};
 
 // ══════════════════════════════════════════════════
@@ -500,6 +706,7 @@ document.getElementById('bpNav').addEventListener('click',e=>{
   updateTimeInfo(); render();
 });
 document.getElementById('homeBtn').addEventListener('click',()=>{ showPage('home'); renderHome(); });
+function showAbout(){ showPage('about-page'); }
 
 // ══════════════════════════════════════════════════
 //  SCENARIO SWITCHING
@@ -732,7 +939,7 @@ function render() {
     ['svMean','svGeo','svP90','svN','svCpk'].forEach(id=>{
       const el=document.getElementById(id); if(el) el.textContent='—';
     });
-    ['imr','mr','hist','prio','traf','oocA','oocV','ci'].forEach(k=>destroy(k));
+    ['imr','mr','hist','oocA','oocV'].forEach(k=>destroy(k));
     document.getElementById('oocBadge').textContent='OOC: — / —';
     document.getElementById('spcNote').textContent='Not enough data in selected time window.';
     document.getElementById('mrNote').textContent='';
@@ -747,12 +954,13 @@ function render() {
   document.getElementById('svCpk').textContent=isFinite(s.cpk)?s.cpk.toFixed(3):'∞';
   setBadge('bdgMean',rM);setBadge('bdgGeo',rG);setBadge('bdgP90',rP);setBadge('bdgCpk',rC);
 
-  const worst=(rP==='bad'||rM==='bad')?'crit':(rP==='fair'||rM==='fair')?'warn':'ok';
-  const msgs={ok:`✓ ${activeZone} meets NFPA 1710 target. Mean ${s.mu.toFixed(1)} min, p90 ${s.p90.toFixed(1)} min, Cpk ${s.cpk.toFixed(2)}.`,warn:`${activeZone} is in the fair range. Mean ${s.mu.toFixed(1)} min, p90 ${s.p90.toFixed(1)} min — review dispatch coverage.`,crit:`⚠ ${activeZone} exceeds NFPA 1710 benchmarks. Mean ${s.mu.toFixed(1)} min, p90 ${s.p90.toFixed(1)} min, Cpk ${isFinite(s.cpk)?s.cpk.toFixed(2):'∞'}.`};
+  const worst=rM==='bad'?'crit':rM==='fair'?'warn':'ok';
+  const cpkStr=isFinite(s.cpk)?s.cpk.toFixed(2):'∞';
+  const msgs={ok:`✓ ${activeZone} is in the good range (≤10.9 min). Mean ${s.mu.toFixed(1)} min, p90 ${s.p90.toFixed(1)} min, Cpk ${cpkStr}.`,warn:`⚠ ${activeZone} is in the fair range (11–15 min). Mean ${s.mu.toFixed(1)} min, p90 ${s.p90.toFixed(1)} min, Cpk ${cpkStr}.`,crit:`🔴 ${activeZone} is in the bad range (>15 min). Mean ${s.mu.toFixed(1)} min, p90 ${s.p90.toFixed(1)} min, Cpk ${cpkStr}.`};
   setAlert(worst,msgs[worst]);
 
-  drawIMR(s,rows); drawMR(s); drawHist(s); drawPriority(rows); drawTraffic(rows);
-  drawOOCAttrib(s,rows); drawOOCvAll(s,rows); drawCI(s);
+  drawIMR(s,rows); drawMR(s); drawHist(s);
+  drawOOCAttrib(s,rows); drawOOCvAll(s,rows);
 }
 
 function setBadge(id,cls){const el=document.getElementById(id);if(!el)return;el.textContent=RLABELS[cls];el.className='badge '+cls;}
@@ -805,40 +1013,21 @@ function drawHist(s){
   for(let e=0;e<mx;e+=2) edges.push(e);
   const counts=edges.map(e=>s.rt.filter(v=>v>=e&&v<e+2).length);
   charts['hist']=new Chart(document.getElementById('chartHist'),{type:'bar',
-    data:{labels:edges.map(e=>`${e}`),datasets:[{label:'Incidents',data:counts,backgroundColor:edges.map(e=>e<8?C.good+'bb':e<15?C.fair+'bb':C.bad+'bb'),borderWidth:.5,categoryPercentage:1,barPercentage:1}]},
+    data:{labels:edges.map(e=>`${e}`),datasets:[{label:'Incidents',data:counts,backgroundColor:edges.map(e=>e<11?C.good+'bb':e<=15?C.fair+'bb':C.bad+'bb'),borderWidth:.5,categoryPercentage:1,barPercentage:1}]},
     options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:GRID,ticks:{maxTicksLimit:12,font:TF},title:{display:true,text:'RT (min)',font:TF}},y:{grid:GRID,ticks:{font:TF},beginAtZero:true,title:{display:true,text:'Count',font:TF}}}}});
-}
-
-// ── Priority ─────────────────────────────────────
-function drawPriority(rows){
-  destroy('prio');
-  const avgs=[mean(rows.filter(r=>r.priority<=2).map(r=>r.rt)),mean(rows.filter(r=>r.priority===3).map(r=>r.rt)),mean(rows.filter(r=>r.priority>=5).map(r=>r.rt))].map(v=>isFinite(v)&&v>0?v:0);
-  charts['prio']=new Chart(document.getElementById('chartPriority'),{type:'bar',data:{labels:['High','Medium','Low'],datasets:[{label:'Avg RT',data:avgs,backgroundColor:[C.bad,C.fair,C.good],borderRadius:4}]},
-    options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:GRID,ticks:{font:TF}},y:{grid:GRID,ticks:{font:TF},beginAtZero:true,title:{display:true,text:'Avg min',font:TF}}}}});
-}
-
-// ── Traffic ───────────────────────────────────────
-function drawTraffic(rows){
-  destroy('traf');
-  const lvls=['Low','Medium','High'];
-  const avgs=lvls.map(lvl=>{const g=rows.filter(r=>r.traffic===lvl).map(r=>r.rt);return g.length?mean(g):0;});
-  charts['traf']=new Chart(document.getElementById('chartTraffic'),{type:'bar',data:{labels:lvls,datasets:[{label:'Avg RT',data:avgs,backgroundColor:[C.good,C.fair,C.bad],borderRadius:4}]},
-    options:{responsive:true,plugins:{legend:{display:false}},scales:{x:{grid:GRID,ticks:{font:TF}},y:{grid:GRID,ticks:{font:TF},beginAtZero:true,title:{display:true,text:'Avg min',font:TF}}}}});
 }
 
 // ── OOC Attribution ──────────────────────────────
 function drawOOCAttrib(s,rows){
   destroy('oocA');
-  const useLog=clMode==='geo', UCL=useLog?s.logUCL:s.arithUCL, LCL=useLog?s.logLCL:s.arithLCL;
-  const vals=useLog?s.ln:s.rt;
-  const oocRows=rows.filter((_,i)=>vals[i]>UCL||vals[i]<LCL);
-  const hiT=oocRows.filter(r=>r.traffic==='High').length, mdT=oocRows.filter(r=>r.traffic==='Medium').length;
-  const loU=oocRows.filter(r=>r.units<=4).length, hiPri=oocRows.filter(r=>r.priority<=2).length, loPri=oocRows.filter(r=>r.priority>=5).length;
+  const badRows=rows.filter(r=>r.rt>15);
+  const hiT=badRows.filter(r=>r.traffic==='High').length, mdT=badRows.filter(r=>r.traffic==='Medium').length;
+  const loU=badRows.filter(r=>r.units<=4).length, hiPri=badRows.filter(r=>r.priority<=2).length, loPri=badRows.filter(r=>r.priority>=5).length;
   charts['oocA']=new Chart(document.getElementById('chartOOCAttrib'),{type:'bar',
     data:{labels:['Hi Traffic','Med Traffic','Low Units','Hi Priority','Lo Priority'],
-      datasets:[{label:'OOC pts',data:[hiT,mdT,loU,hiPri,loPri],backgroundColor:[C.bad,C.fair,'#9b59b6',C.bad+'99','#95a5a6'],borderRadius:4}]},
-    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw} OOC (${oocRows.length?(c.raw/oocRows.length*100).toFixed(1):0}%)`}}},
-      scales:{x:{grid:GRID,ticks:{font:{size:9,family:'Arial,sans-serif'}}},y:{grid:GRID,ticks:{font:TF},beginAtZero:true,title:{display:true,text:'# OOC',font:TF}}}}});
+      datasets:[{label:'Bad RT pts',data:[hiT,mdT,loU,hiPri,loPri],backgroundColor:[C.bad,C.fair,'#9b59b6',C.bad+'99','#95a5a6'],borderRadius:4}]},
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.raw} bad RT (${badRows.length?(c.raw/badRows.length*100).toFixed(1):0}%)`}}},
+      scales:{x:{grid:GRID,ticks:{font:{size:9,family:'Arial,sans-serif'}}},y:{grid:GRID,ticks:{font:TF},beginAtZero:true,title:{display:true,text:'# Bad RT',font:TF}}}}});
 }
 
 // ── OOC vs All ────────────────────────────────────
@@ -855,20 +1044,6 @@ function drawOOCvAll(s,rows){
     ]},
     options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:9,family:'Arial,sans-serif'},boxWidth:10}},tooltip:{callbacks:{label:c=>`${c.raw.toFixed(2)} min`}}},
       scales:{x:{grid:GRID,ticks:{font:TF}},y:{grid:GRID,ticks:{font:TF},beginAtZero:true,title:{display:true,text:'RT (min)',font:TF}}}}});
-}
-
-// ── 95% CI ────────────────────────────────────────
-function drawCI(s){
-  destroy('ci');
-  const col=s.geoMean<8?C.good:s.geoMean<15?C.fair:C.bad;
-  charts['ci']=new Chart(document.getElementById('chartCI'),{type:'bar',
-    data:{labels:['95% CI'],datasets:[
-      {label:'CI Range',data:[s.geoCIHigh-s.geoCILow],base:[s.geoCILow],backgroundColor:col+'33',borderColor:col,borderWidth:2,borderSkipped:false},
-      {label:`Geo Mean: ${s.geoMean.toFixed(1)} min`,data:[s.geoMean],base:[0],backgroundColor:col,borderWidth:0,barThickness:6},
-    ]},
-    options:{indexAxis:'y',responsive:true,
-      plugins:{legend:{position:'bottom',labels:{font:{size:9,family:'Arial,sans-serif'},boxWidth:10}},tooltip:{callbacks:{label:c=>{if(c.datasetIndex===0) return `CI: [${s.geoCILow.toFixed(1)}, ${s.geoCIHigh.toFixed(1)}] min`;return `Geo mean: ${s.geoMean.toFixed(1)} min`;}}}},
-      scales:{x:{grid:GRID,ticks:{font:TF},title:{display:true,text:'RT (min)',font:TF},min:0},y:{display:false}}}});
 }
 
 // ══════════════════════════════════════════════════
