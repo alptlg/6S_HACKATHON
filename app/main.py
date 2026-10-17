@@ -19,6 +19,14 @@ except ModuleNotFoundError:
     from app.qc import REQUIRED_COLUMNS, analyze_incidents
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+DEMO_DATA_DIR = Path(__file__).resolve().parent / "demo_data"
+
+# UI labels map to bundled CSVs (repo data/ originals: normal, high_delay, mixed).
+REGION_PRESETS: dict[str, tuple[str, str]] = {
+    "manhattan": ("Manhattan", "manhattan.csv"),
+    "queens": ("Queens", "queens.csv"),
+    "brooklyn": ("Brooklyn", "brooklyn.csv"),
+}
 
 app = FastAPI(
     title="Chiblings EMS Response Monitor",
@@ -63,6 +71,43 @@ async def dashboard() -> FileResponse:
     if not index.is_file():
         raise HTTPException(status_code=500, detail="dashboard not found")
     return FileResponse(index)
+
+
+@app.get("/api/regions")
+async def list_regions() -> list[dict[str, str]]:
+    return [
+        {"id": rid, "label": label, "description": _region_blurb(rid)}
+        for rid, (label, _) in REGION_PRESETS.items()
+    ]
+
+
+def _region_blurb(region_id: str) -> str:
+    blurbs = {
+        "manhattan": "Baseline operations — typical response times.",
+        "queens": "Elevated delays after mid-October (South/West zones).",
+        "brooklyn": "Mixed pattern — special-cause points and zone stress.",
+    }
+    return blurbs.get(region_id, "")
+
+
+@app.get("/api/analyze/{region_id}")
+async def analyze_region(region_id: str) -> JSONResponse:
+    preset = REGION_PRESETS.get(region_id)
+    if not preset:
+        raise HTTPException(status_code=404, detail=f"unknown region: {region_id}")
+    _, filename = preset
+    path = DEMO_DATA_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=500, detail=f"missing bundled dataset: {filename}")
+    try:
+        df = pd.read_csv(path)
+        result = analyze_incidents(df)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    payload = _json_safe(result)
+    payload["region_id"] = region_id
+    payload["region_label"] = preset[0]
+    return JSONResponse(payload)
 
 
 @app.post("/api/analyze")

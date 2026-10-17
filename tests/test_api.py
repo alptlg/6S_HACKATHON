@@ -32,4 +32,15 @@ def test_dashboard_html():
     client = TestClient(app)
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "EMS Response Monitor" in resp.text
+    assert "Response Monitor" in resp.text
+    assert "Manhattan" in resp.text
+
+
+def test_analyze_manhattan_preset():
+    client = TestClient(app)
+    direct = analyze_incidents(pd.read_csv(DATA))
+    resp = client.get("/api/analyze/manhattan")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["region_id"] == "manhattan"
+    assert body["n_incidents"] == direct["n_incidents"]

@@ -29,34 +29,43 @@
       "checksum": "dbaf95b62d44c8eff7bbf00d96db42b4"
     },
     "__init__.py": {
-      "checksum": "8f26970ce81ab662af640c5836a00a0a"
+      "checksum": "64b3a1cbef318866204cfe51757c6bec"
+    },
+    "demo_data/brooklyn.csv": {
+      "checksum": "e214d2f485934f38aa0101044d75c34a"
+    },
+    "demo_data/manhattan.csv": {
+      "checksum": "2e3e6524f2ef61fbdda4bcec51321b29"
+    },
+    "demo_data/queens.csv": {
+      "checksum": "230d014f610f4251e387ce2d88eca63d"
     },
     "deployme.sh": {
-      "checksum": "2280a04110ea3cf918d1d4bcdb323282"
+      "checksum": "7d9c4b67b076b521384c15f2066023b4"
     },
     "main.py": {
-      "checksum": "c42772f27b75bb8d284c6ebe799817fd"
+      "checksum": "fc1ceb1000fc27b6f5dcc1eff168b618"
     },
     "manifestme.sh": {
-      "checksum": "3e0dd922f655b0cb37fdebab42a29b64"
+      "checksum": "4dc1c199b61e9a14dd203d26398b5af1"
     },
     "qc.py": {
-      "checksum": "21893603287d8f61a833f498579ef453"
+      "checksum": "c05f33f07932e3e4a299ff0c13ddf8b9"
     },
     "static/dashboard.js": {
-      "checksum": "9feaa8d3d9861bb20e948a07f244cc2c"
+      "checksum": "c0081b8620b86ee1c8b26f9578765dfa"
     },
     "static/index.html": {
-      "checksum": "8415c07361eab97605164a134961b82d"
+      "checksum": "295fa1b626bc2d3837aa786e6bdb75b7"
     },
     "static/styles.css": {
-      "checksum": "d133366f3ef3969fe8c44225fc6ce9e8"
+      "checksum": "9881c782af5dac829d7d367bef4528ab"
     },
     "testme.ps1": {
       "checksum": "c8953080060938fb752d01298fca2e11"
     },
     "testme.sh": {
-      "checksum": "94fb6e11c22e39e63b7c0b178ca5d276"
+      "checksum": "5dc5e5cdb25177d0baa4c1c753dcbe35"
     }
   }
 }
