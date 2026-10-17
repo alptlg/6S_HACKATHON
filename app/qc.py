@@ -231,7 +231,9 @@ def compute_capability(
     sig_log = float(np.std(ln_x, ddof=1))
 
     if sig_log == 0:
-        cpu = float("inf")
+        # Zero spread: every value meets the USL (+inf) or every value misses it (-inf).
+        gap = math.log(usl_min) - mu_log
+        cpu = float("inf") if gap > 0 else float("-inf") if gap < 0 else 0.0
     else:
         cpu = (math.log(usl_min) - mu_log) / (3 * sig_log)
 

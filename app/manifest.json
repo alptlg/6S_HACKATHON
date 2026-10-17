@@ -1,15 +1,15 @@
 {
   "version": 1,
-  "locale": "English_United States.1252",
+  "locale": ".UTF-8",
   "metadata": {
     "appmode": "python-fastapi",
     "entrypoint": "main:app"
   },
   "python": {
-    "version": "3.12.14",
+    "version": "3.12.6",
     "package_manager": {
       "name": "pip",
-      "version": "26.2.1",
+      "version": "24.2",
       "package_file": "requirements.txt"
     }
   },
@@ -19,44 +19,41 @@
     }
   },
   "files": {
+    "requirements.txt": {
+      "checksum": "118ee0abbdb2ed724e84e79c2b2aac0a"
+    },
     ".python-version": {
       "checksum": "61939823fbcc7e8de3b61ab105331baf"
     },
     "README.md": {
-      "checksum": "0595d3b7beec2a21946ee278a19bd477"
+      "checksum": "06a262aab130edd3b6a679e823203bb7"
     },
     "__init__.py": {
       "checksum": "64b3a1cbef318866204cfe51757c6bec"
+    },
+    "build_page.py": {
+      "checksum": "2dd20e5fbc33ca9a787205cb24991ba6"
+    },
+    "cli.py": {
+      "checksum": "7fb582ad1ddad3177ed1d3ef1af7b921"
     },
     "deployme.sh": {
       "checksum": "7d9c4b67b076b521384c15f2066023b4"
     },
     "main.py": {
-      "checksum": "bc3f84550ea43df06e2aba0b77e48ab9"
+      "checksum": "6c8691dbf07c7d9535cfeab20094b622"
     },
     "manifestme.sh": {
       "checksum": "4dc1c199b61e9a14dd203d26398b5af1"
     },
-    "nyc_normals.json": {
-      "checksum": "57724a8eebe1132409c3718a69caae15"
+    "pack_data.py": {
+      "checksum": "a4d3dd47310c2ad64305bb563396d042"
     },
     "qc.py": {
-      "checksum": "263be161ac0148478752876acc00efbd"
-    },
-    "requirements.txt": {
-      "checksum": "5614f7c9c22ab1568fd102055b5e095a"
-    },
-    "simulate.py": {
-      "checksum": "e12fa94c6d7338ecde6c3ee28ffc5733"
-    },
-    "static/dashboard.js": {
-      "checksum": "2edb2a5801219215080004a3a957fa61"
+      "checksum": "7e3ccccc811f98c7364a254c99323b48"
     },
     "static/index.html": {
-      "checksum": "0ec192a636af9f36fcb1504dc8508c5b"
-    },
-    "static/styles.css": {
-      "checksum": "375045d2248d7986423cb3bed210c2fd"
+      "checksum": "5725167d50e9029f64798fbe6e3a0c4b"
     },
     "testme.ps1": {
       "checksum": "c76e6acff0babcfead7fe3a4d718cdf8"

@@ -38,7 +38,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from main import load_csv  # reuse the normalised loader
+from cli import load_csv  # reuse the normalised loader
 
 # ── Configuration ─────────────────────────────────────────────────────────
 ROWS_PER_ZONE_MONTH = 80   # 80 × 5 zones × 12 months = 4,800 rows per scenario

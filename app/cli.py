@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-main.py — CLI entry point for NYC EMS Response Time Analysis
+cli.py — CLI entry point for NYC EMS Response Time Analysis
 Cornell SYSEN 5300 · Six Sigma Hackathon · Team Chiblings
 
 Usage:
-    python main.py --scenario stable
-    python main.py --scenario delay --borough Manhattan
-    python main.py --scenario fast  --borough all --window 1mo
-    python main.py --csv data/my_custom_file.csv --borough Queens
-    python main.py --report pdf --out reports/
+    python app/cli.py --scenario stable
+    python app/cli.py --scenario delay --borough Manhattan
+    python app/cli.py --scenario fast  --borough all --window 1mo
+    python app/cli.py --csv data/my_custom_file.csv --borough Queens
+    python app/cli.py --report pdf --out reports/
 """
 
 import argparse
@@ -19,15 +19,21 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from qc import compute_stats, rating, NFPA_USL
+from types import SimpleNamespace
+
+try:
+    from qc import NFPA_USL_MIN as NFPA_USL, run_qc
+except ModuleNotFoundError:
+    from app.qc import NFPA_USL_MIN as NFPA_USL, run_qc
 
 
 # ── Constants ─────────────────────────────────────────────────────────────
 BOROUGHS = ["Queens", "Brooklyn", "Manhattan", "Bronx", "Staten Island"]
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 SCENARIOS = {
-    "stable": "data/stable_operations_2026_24000_synthetic.csv",
-    "delay":  "data/highDelay_2026_24000_synthetic.csv",
-    "fast":   "data/noDelay_2026_24000_synthetic.csv",
+    "stable": str(DATA_DIR / "stable_operations_2026_24000_synthetic.csv"),
+    "delay":  str(DATA_DIR / "highDelayAlex_2026_24000_synthetic.csv"),
+    "fast":   str(DATA_DIR / "noDelayAlexData_2026_24000_synthetic.csv"),
 }
 WINDOWS = {"all", "6mo", "1mo", "week", "day"}
 
@@ -149,6 +155,31 @@ def filter_by_borough(rows: list[dict], borough: str) -> list[dict]:
     return [r for r in rows if r["zone"] == target]
 
 
+# ── Summary (statistics come from qc.run_qc; nothing is computed here) ──
+def compute_stats(rt_vals: list[float]) -> SimpleNamespace | None:
+    """Flatten qc.run_qc into the fields the reports print. None if n < 4."""
+    if len(rt_vals) < 4:
+        return None
+    q = run_qc(rt_vals)
+    n = q.descriptive.n
+    good = sum(1 for v in rt_vals if v < 8)
+    bad = sum(1 for v in rt_vals if v >= 15)
+    fair = n - good - bad
+    imr = SimpleNamespace(
+        log_cl=q.imr.log_cl, log_ucl=q.imr.log_ucl, log_lcl=q.imr.log_lcl,
+        ucl_min=q.imr.ucl_min, lcl_min=q.imr.lcl_min,
+        ooc_high=q.imr.n_above_ucl, ooc_low=q.imr.n_below_lcl,
+        ooc_total=q.imr.n_above_ucl + q.imr.n_below_lcl,
+    )
+    return SimpleNamespace(
+        n=n, arith_mean=q.descriptive.mean, geo_mean=q.ci.geo_mean,
+        geo_ci_low=q.ci.geo_ci_low, geo_ci_high=q.ci.geo_ci_high,
+        p90=q.descriptive.p90, cpk=q.capability.cpk, imr=imr,
+        good=good, fair=fair, bad=bad,
+        good_pct=100 * good / n, fair_pct=100 * fair / n, bad_pct=100 * bad / n,
+    )
+
+
 # ── Reporting ─────────────────────────────────────────────────────────────
 def _bar(value: float, total: int, width: int = 20) -> str:
     """Simple ASCII bar chart element."""
@@ -229,10 +260,10 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --scenario stable
-  python main.py --scenario delay  --borough Manhattan --window 1mo
-  python main.py --csv data/custom.csv --window 6mo
-  python main.py --scenario fast   --borough all      --breakdown
+  python app/cli.py --scenario stable
+  python app/cli.py --scenario delay  --borough Manhattan --window 1mo
+  python app/cli.py --csv data/custom.csv --window 6mo
+  python app/cli.py --scenario fast   --borough all      --breakdown
 """,
     )
     src = p.add_mutually_exclusive_group(required=True)
