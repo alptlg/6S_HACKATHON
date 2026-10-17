@@ -19,44 +19,50 @@
     }
   },
   "files": {
-    "requirements.txt": {
-      "checksum": "2bb1d672c622e78eb19c25429dc2b088"
-    },
     ".python-version": {
-      "checksum": "c3052f53ccf07991da5591cab5ee1274"
+      "checksum": "61939823fbcc7e8de3b61ab105331baf"
     },
     "README.md": {
-      "checksum": "dbaf95b62d44c8eff7bbf00d96db42b4"
+      "checksum": "0595d3b7beec2a21946ee278a19bd477"
     },
     "__init__.py": {
-      "checksum": "8f26970ce81ab662af640c5836a00a0a"
+      "checksum": "64b3a1cbef318866204cfe51757c6bec"
     },
     "deployme.sh": {
-      "checksum": "2280a04110ea3cf918d1d4bcdb323282"
+      "checksum": "7d9c4b67b076b521384c15f2066023b4"
     },
     "main.py": {
-      "checksum": "c42772f27b75bb8d284c6ebe799817fd"
+      "checksum": "bc3f84550ea43df06e2aba0b77e48ab9"
     },
     "manifestme.sh": {
-      "checksum": "3e0dd922f655b0cb37fdebab42a29b64"
+      "checksum": "4dc1c199b61e9a14dd203d26398b5af1"
+    },
+    "nyc_normals.json": {
+      "checksum": "57724a8eebe1132409c3718a69caae15"
     },
     "qc.py": {
-      "checksum": "21893603287d8f61a833f498579ef453"
+      "checksum": "263be161ac0148478752876acc00efbd"
+    },
+    "requirements.txt": {
+      "checksum": "5614f7c9c22ab1568fd102055b5e095a"
+    },
+    "simulate.py": {
+      "checksum": "e12fa94c6d7338ecde6c3ee28ffc5733"
     },
     "static/dashboard.js": {
-      "checksum": "9feaa8d3d9861bb20e948a07f244cc2c"
+      "checksum": "2edb2a5801219215080004a3a957fa61"
     },
     "static/index.html": {
-      "checksum": "8415c07361eab97605164a134961b82d"
+      "checksum": "0ec192a636af9f36fcb1504dc8508c5b"
     },
     "static/styles.css": {
-      "checksum": "d133366f3ef3969fe8c44225fc6ce9e8"
+      "checksum": "375045d2248d7986423cb3bed210c2fd"
     },
     "testme.ps1": {
-      "checksum": "c8953080060938fb752d01298fca2e11"
+      "checksum": "c76e6acff0babcfead7fe3a4d718cdf8"
     },
     "testme.sh": {
-      "checksum": "94fb6e11c22e39e63b7c0b178ca5d276"
+      "checksum": "5dc5e5cdb25177d0baa4c1c753dcbe35"
     }
   }
 }

@@ -1,332 +1,95 @@
-# Roadmap (RM) — Chiblings EMS Response Monitor
+# Roadmap (RM) — Chiblings NYC EMS Zone Monitor
 
 Simple plan for the hackathon build. Follow these **five steps in order**. Each step maps to tasks in `CONTRACT.yaml` (shown in parentheses).
 
-**Already decided** (see `SPEC.md`): Python, FastAPI, one HTML dashboard with Chart.js, stats in `app/qc.py`, deploy to **Posit Connect**, no logins, no database.
+**Already decided** (see `SPEC.md` and `docs/proposal.md`; all three files use the same names): Python, FastAPI, one HTML dashboard with Chart.js, statistics in `app/qc.py`, each borough's normal from 12 months of real NYC EMS data (`data/nyc_normals.py` -> `app/nyc_normals.json`), test data from `app/simulate.py`, deploy to **Posit Connect**, no logins, no database.
+
+**Names used everywhere:** `incident_id`, `dispatch_time`, `on_scene_time`, `zone` (required); `call_received`, `traffic_level`, `available_units`, `priority` (optional); `response_time_min`, `call_to_dispatch_min`, `time_of_day`, `recent_call_volume` (derived by the tool); `simulated_special_cause` (test files only). Zones are the 5 NYC boroughs.
+
+**Status (Fri night):** Steps 1-3 are built and tested (`pytest tests`: 38 passed). Next: Step 4 (deploy), then Step 5.
 
 ---
 
-## Step 1 — Build `data/` and the codebook **(CONTRACT H-02)**
+## Step 1 — Build `data/` and the codebook **(CONTRACT H-02)** — built
 
-**Goal:** Three small CSV files plus `data/README.md` so judges (and pytest later) can run the tool on known stories: normal ops, zone delays, occasional outliers.
+**Goal:** Three CSV files plus `data/README.md` so judges (and pytest) can run the tool on known stories.
 
 **Done when:** `data/*.csv` exists (3 files) and the codebook describes every column and file (`CONTRACT` definition of done).
 
 ### Why this step matters (short research)
 
-Real EMS agencies store **one row per call** in **CAD** (Computer-Aided Dispatch) with timestamps and **zones**; reports often show compliance **by zone** and use **percentiles**, not only monthly averages (see `LR.md` references [2], [4], [10]). We mimic that shape with **fake but realistic** data — no real 911 data.
+Real EMS agencies store **one row per call** in **CAD** (Computer-Aided Dispatch) with timestamps and **zones**; reports often show compliance **by zone** and use **percentiles**, not only monthly averages (see `LR.md` references [2], [4], [10]). We take each borough's **normal** from 12 months of real FDNY incidents (NYC Open Data, dataset `76xm-jjuj`, Oct 2025 - Sep 2026, 1,442,227 valid incidents) and **simulate** test files whose response times are drawn from those real distributions — no real incident rows or patient data in the repo.
 
-Your tool will compute **response time = arrival_time − dispatch_time** (minutes). Charts need **time order** (sort by `call_received`). Zone flags use **I-MR on log(response time)** and **90th percentile vs 8 minutes** (`SPEC.md` §4).
+The tool computes **`response_time_min = on_scene_time − dispatch_time`** (minutes) and orders each zone's calls by `dispatch_time`.
 
----
+### How it is built
 
-### Step 1 substeps (how to build data + codebook)
-
-**1.1 — Lock the column schema (do not add extra columns unless the team agrees)**
-
-Use the same columns in all three CSVs (`SPEC.md` §3, §7):
-
-| Column | Type | Notes |
-|--------|------|--------|
-| `incident_id` | string or int | Unique per row |
-| `zone` | text | e.g. North, South, East, West, Central |
-| `priority` | text | High, Medium, Low |
-| `call_received` | datetime | `YYYY-MM-DD HH:MM:SS` |
-| `dispatch_time` | datetime | After `call_received` |
-| `arrival_time` | datetime | After `dispatch_time` |
-
-`call_received` is **logged for realism**; **response time for charts** uses dispatch → arrival only.
-
-**1.2 — Pick fixed “world settings” for all files**
-
-- **Zones:** 4–5 names, used in every CSV (so bar charts compare the same places).
-- **Date span:** e.g. 14–30 days of incidents so I-MR has enough points (aim **≥ 40 rows per file**, more is fine).
-- **Priority mix:** mostly High/Medium for EMS demo; keep Low rare unless you test filtering later.
-- **Clock rules:** every row must satisfy `call_received ≤ dispatch_time ≤ arrival_time`; response time **> 0** minutes.
-
-**1.3 — Write a one-sentence “story” per file (from `SPEC.md`)**
+- **Generator:** `app/simulate.py` (fixed seeds 101 / 202 / 303). Regenerate from the repo root with `python -m app.simulate`. It lives in `app/` so the deployed app can rebuild the same samples without uploading CSVs.
+- **Model:** normal response times are drawn from each borough's real NYC distribution; planted problems add minutes (traffic +1.5/+4.0, workload +3.0, 0-2 units +4.0). Values are in `data/README.md`.
+- **Files** (problems planted from day 40, so days 1-14 are a clean baseline):
 
 | File | Story | What the dashboard should show |
-|------|--------|--------------------------------|
-| `normal_operations.csv` | Stable process, all zones similar | Few OOC points; zone alerts mostly quiet |
-| `high_delay_operations.csv` | **South** and **West** slower for many days | Higher p90 in those zones; alerts name UCL and/or >8 min rule |
-| `mixed_operations.csv` | Mostly normal + a few **very slow** calls | Individual points above UCL; interpret as special-cause spikes |
+|------|-------|--------------------------------|
+| `stable_operations.csv` | 60 days, 5 boroughs, nothing planted | all zones 🟢 in every period |
+| `zone_patterns.csv` | from day 40: Queens high traffic; Bronx high workload + few units; Brooklyn all three; Manhattan 60 isolated extreme delays; Staten Island normal | Queens 🔴 Travel conditions; Bronx 🔴 Demand / resource pressure; Brooklyn 🔴 Combined stress; Manhattan 🟡 Unexplained special cause; Staten Island 🟢 |
+| `minimal_input.csv` | only the 4 required columns, 21 days, bad rows, two non-borough zones | warnings, Harbor Unit judged on its own first 14 days, Ferry Terminal ⚪ Insufficient data, "factors unavailable", no crash |
 
-**1.4 — Decide how to generate numbers (synthetic, reproducible)**
+### Judge quick test
 
-Recommended approach for the hackathon:
-
-- Use a **small Python script** (run once with `venv_sigma`, e.g. `data/generate_datasets.py`) with a **fixed random seed** so teammates get the same CSVs every time.
-- **Normal file:** draw dispatch→arrival minutes from a tight distribution (e.g. log-normal with mean around 5–7 min) per zone, similar parameters.
-- **High-delay file:** same as normal for North/East; **shift mean upward** for South/West after a chosen date (sustained shift, not one typo).
-- **Mixed file:** mostly normal; **inject 3–8 extreme rows** (e.g. 15–25 min) spread across zones or concentrated in one zone — team choice, but document it in the codebook.
-
-Optional checks while generating:
-
-- After creating minutes, **back-compute** timestamps (call = dispatch − 1–3 min, arrival = dispatch + minutes) so CSVs look like real CAD exports.
-
-**1.5 — Validate before committing**
-
-- Open each CSV in pandas: no nulls in required fields, no duplicate `incident_id`, sort by `call_received`.
-- Recompute response minutes and confirm **South/West** story in file 2 and **spikes** in file 3.
-- Spot-check one row by hand (calculator).
-
-**1.6 — Write `data/README.md` (the codebook)**
-
-Include:
-
-1. **Purpose** — synthetic data for Prompt #2; not real patients.
-2. **Table per column** — name, unit, definition, role (predictor/outcome/id), allowed values.
-3. **One subsection per CSV** — row count, date range, what behavior was planted, expected alert behavior.
-4. **Collection in the real world** — 2–3 sentences: dispatcher records times in CAD; supervisor exports CSV (aligned with `LR.md` process map).
-5. **Response time definition** — dispatch to arrival, minutes; link to `SPEC.md` §4.
-6. **Generation note** — seed, script name, who ran it (reproducibility).
-
-Hackathon rubric wants the same idea as a course **codebook table**: Variable | Unit | Definition & role.
-
-**1.7 — Quick “judge story” check**
-
-Teammate who did not write the data should answer:
-
-- Which file proves **normal** control limits?
-- Which file proves **zone** problems?
-- Which file proves **single bad calls**?
-
-If yes, Step 1 is ready for Step 2.
+- Which file proves **normal** control limits? `stable_operations.csv`
+- Which file proves **zone** problems and the "why" patterns? `zone_patterns.csv`
+- Which file proves the tool is **plug-and-play** with 4 columns? `minimal_input.csv`
 
 ---
 
-## Step 2 — `app/qc.py` and tests **(CONTRACT H-03)**
+## Step 2 — `app/qc.py` and tests **(CONTRACT H-03)** — built
 
-**Goal:** All statistics in plain Python; **pytest passes**, including SPEC **known-answer** (raw and log-scale I-MR) and degenerate cases (n=1, constant times, bad timestamps).
-
-**Done when:** `pytest tests` passes from repo root (`CONTRACT` H-03); a teammate can explain every number using `SPEC.md` §4.
+**Goal:** All statistics in plain Python; **pytest passes**, including the SPEC **known answers** (raw and log-scale I-MR, p90, response time, workload) and degenerate cases (n = 1, constant times, missing columns, bad timestamps).
 
 ### Why this step matters (short research)
 
-Hackathon grading puts **25 points** on “valid QC analysis” — not on chart colors (`docs/criteria.md`). The repo’s **stats-first-steering** skill says: write the method in words, implement **one plain function**, **verify with known answers**, then wrap the API (`.claude/skills/stats-first-steering/SKILL.md`).
+The method is **I-MR on ln(response time)** per borough with limits from the borough's **real 12-month NYC normal** (`SPEC.md` §4). The instructor demo `demos/pypackage/src/demotool/qc.py` shows the pattern: small functions, `Limits` named tuple, hand-checked tests. Course code uses **d2 = 1.128** for individuals charts, so 3/d2 = **2.66** and the MR chart UCL uses **D4 = 3.267**.
 
-Your method is **I-MR on log(response time)** with **zone percentiles** and **8-minute** alert rule (`SPEC.md` §4). The instructor demo `demos/pypackage/src/demotool/qc.py` shows the pattern: small functions, `Limits` named tuple, hand-checked tests in `demos/pypackage/tests/test_qc.py`. SYSEN course code uses moving-range constants **d2 = 1.128** for individuals charts (`sysen/functions/functions_process_control.py` — same idea as the demo).
+### What `qc.py` does (in order)
 
-**Important:** `app/qc.py` must **not** import FastAPI, pandas in the API layer is OK inside qc if you prefer — but keep **formulas testable** without starting a server. Step 3 only **calls** what you prove here.
+1. `prepare_incidents(df)` — checks the 4 required columns, drops bad rows with a warning, adds `response_time_min`, `call_to_dispatch_min`, `time_of_day`, `recent_call_volume`.
+2. `borough_normal` + `limits_from_normal` — each borough's NYC normal gives its centerline, limits and normal p90 (log scale, shown in minutes); a non-borough zone uses `baseline_rows` + `imr_limits_log` on its first 14 days.
+3. `period_window` — Live 3 h, Daily 24 h, Weekly 7 d, Monthly 30 d, Yearly 365 d, ending at the latest call. **Limits never move with the period.**
+4. `zone_status` — 🔴 if calls above UCL are beyond chance, ≥ 3 and ≥ 3x the borough's normal rate, or 8 consecutive **daily medians** above the centerline, or the 99% bootstrap interval of p90 is above the normal p90 + 5%; 🟡 if calls above UCL are beyond chance or the 95% bootstrap interval of p90 is above normal p90 + 5%; else 🟢; ⚪ if a non-borough zone has < 20 baseline calls.
+5. `compare_conditions` + `pattern_label` — Workload / Traffic / Units / Call-to-dispatch vs baseline, summarized as Travel conditions, High-demand pressure, Resource constraint, Demand / resource pressure, Combined operational stress, or Unexplained special cause.
 
----
+### Known answers (tests in `tests/test_qc.py`)
 
-### Step 2 substeps (how to build statistics + tests)
-
-**2.1 — Create `app/qc.py` early (stats-only, no website yet)**
-
-- Add folder `app/` if it does not exist; put **`app/qc.py`** here first (you can copy `demos/fastapi/` later in Step 3).
-- Allowed imports: `math`, `statistics`, `numpy`, `pandas` (pandas only for table hygiene — sorting, timestamps, groupby).
-- Return plain Python types: `dict`, `list`, `float`, small **`NamedTuple`** / dataclass (like demo `Limits`).
-
-**2.2 — Response time from the Step 1 schema**
-
-- Function: e.g. `add_response_minutes(df)` → adds `response_min` = `(arrival_time - dispatch_time)` in minutes.
-- Sort by `call_received` before any time-series chart.
-- Drop or reject rows with nonpositive or missing intervals.
-
-**2.3 — Validation layer (assumptions from SPEC §4)**
-
-- Function: e.g. `validate_incidents(df)` → `(clean_df, warnings: list[str])`.
-- Check: required columns, duplicate `incident_id`, timestamp order, finite times, optional minimum row count (e.g. ≥ 2 for I-MR, suggest **≥ 8 per zone** before zone-specific I-MR).
-- If checks fail badly, downstream functions should **warn** rather than silently plot (matches SPEC “display a warning”).
-
-**2.4 — Descriptive summaries (for dashboard section 1)**
-
-- Function: e.g. `response_summary(times)` → mean, median, stdev, **p90, p95** using **`numpy.percentile(..., method="linear")`** (SPEC decision).
-- Function: e.g. `zone_summaries(df)` → same stats **by zone** for bar charts.
-
-**2.5 — Log-scale I-MR limits (core graded statistic)**
-
-Work on **`y = ln(response_min)`** in order (after sort):
-
-| Quantity | Formula (log units) | Notes |
-|----------|---------------------|--------|
-| Centerline | mean(`y`) | Display in minutes: `exp(center_log)` ≈ geometric mean |
-| Moving ranges | `|y_i - y_{i-1}|` | Need ≥ 2 points |
-| MR̄ | mean of moving ranges | |
-| Individuals UCL/LCL | center ± **2.66 × MR̄** | 2.66 ≈ 3/d2 for n=2 individuals chart |
-| MR chart UCL | **3.267 × MR̄** | LCL = 0 for moving range |
-
-Functions to implement (names up to you):
-
-- `imr_limits_log(values)` → limits in **log** and **minute** scale for display.
-- `imr_series(values, limits)` → each point’s `y`, MR, and **OOC flag** (above UCL or below LCL on the **log** individuals chart).
-
-**Known-answer tests (from SPEC — must pass):**
-
-1. **Raw minutes** `[6, 8, 7, 9, 10]`: mean 8.0, MR̄ 1.5, UCL 11.99, LCL 4.01 (unlogged textbook check — proves you understand MR).
-2. **Log-scale** same data: centerline ≈ 7.87 min, UCL ≈ 13.21 min, LCL ≈ 4.69 min; MR UCL ≈ 0.6353 in log units.
-3. **p90** of `[6, 8, 7, 9, 10]` = **9.6** (> 8 → flag example).
-
-**2.6 — Zone alerts (dashboard section 4)**
-
-- Function: e.g. `zone_alerts(df, global_limits, ...)`.
-- **Flag a zone** if **any** call in that zone is above the **individuals UCL** (log-based), **or** zone **p90 > 8** minutes (NFPA-style target in SPEC).
-- Return **which rule fired** (`"ucl"`, `"p90"`, or both) so the UI text is explainable.
-
-**2.7 — One orchestrator for Step 3 API (optional but helpful)**
-
-- Function: e.g. `analyze_incidents(df) -> dict` calling 2.2–2.6 in order.
-- Structure JSON-friendly: summaries, chart series, limits, alerts, warnings.
-- **No HTTP** in this file — FastAPI will call this in Step 3.
-
-**2.8 — Write `tests/test_qc.py` at repo root**
-
-Mirror `demos/pypackage/tests/test_qc.py` style:
-
-| Test bucket | Example |
-|-------------|---------|
-| Hand-checked | SPEC `[6,8,7,9,10]` raw + log I-MR + p90 |
-| Degenerate | one point; constant times; empty after validation |
-| Bad input | bad timestamps, duplicates, negative response |
-| Planted signal | load `data/high_delay_operations.csv` → South/West p90 > 8; `mixed_operations.csv` → at least one OOC |
-
-Run: `conda activate venv_sigma` → from repo root: **`pytest tests`**.
-
-**2.9 — Cross-check against Step 1 data (sanity, not submission)**
-
-- Load each CSV; print zone p90 and alert list — confirm stories match `data/README.md` before building the UI.
-
-**2.10 — H-03 check-in (when green)**
-
-- Quote pytest output in `CONTRACT.yaml` task **H-03** `result:` line.
-- Team can recite: “I-MR on log response time; 2.66 and 3.267 constants; zone flag = UCL or p90 > 8.”
-
-**2.11 — Stop line**
-
-- Do **not** copy FastAPI, HTML, or Chart.js until **all** Step 2 tests pass (stats-first-steering rule).
-
----
+1. **Raw minutes** `[6, 8, 7, 9, 10]`: mean 8.0, MR̄ 1.5, UCL 11.99, LCL 4.01.
+2. **Log scale**, same data: centerline 7.87 min, UCL 13.21 min, LCL 4.69 min; MR UCL 0.6353 (log units).
+3. **p90** of `[6, 8, 7, 9, 10]` = **9.6**.
+4. Dispatch 17:42:10 → on scene 17:51:55 = **9.75 min**; calls at 10:00, 10:05, 10:14, 10:20 → `recent_call_volume` 0, 1, 2, 2.
+5. Planted patterns: every expected status and pattern in the Step 1 table.
 
 ### Step 2 pitfalls (avoid losing points)
 
-- Using **sample stdev × 3** for control limits instead of **MR̄/d2** (wrong chart type).
-- Mixing **spec limit 8 min** with **UCL** — 8 minutes is a **policy target**, not the control limit.
-- Computing limits on the **whole** series including planted shifts you want to detect (limits too wide) — for demo, document that limits use **all uploaded points** unless you split baseline later.
-- Putting formulas inside `app.py` / JavaScript — judges want **`app/qc.py` + tests**.
+- Using one fixed target for every borough — real NYC p90s are 17-22 min and differ by borough; compare with each borough's normal.
+- Computing limits from the period being checked — a bad month then hides inside its own wider limits; limits come from the NYC normal.
+- Flagging a zone for **any** call above the UCL — with thousands of calls some exceed it by chance; compare with the expected count.
+- Saying traffic **caused** a delay — conditions are "associated with / coincided with".
 
 ---
 
-## Step 3 — Copy FastAPI demo to `app/` and wire the dashboard **(CONTRACT H-04)**
+## Step 3 — FastAPI app and dashboard in `app/` **(CONTRACT H-04)** — built
 
-**Goal:** A **working tool** judges can open locally: one dashboard page, CSV upload, numbers that **match Step 2 / pytest** on `data/` files.
+**Goal:** One command starts the app; the page shows zone cards, the period selector and the zone detail, using only numbers from `qc.py`.
 
-**Done when:** `app/testme` starts the server; upload or API call on `data/normal_operations.csv` returns the **same summary / limits** as `analyze_incidents()` in tests (`CONTRACT` H-04).
+**Done when:** `app/testme` starts the server and the API returns the same numbers as `analyze_incidents()` for a `data/` file (`tests/test_api.py`).
 
-### Why this step matters (short research)
+### What exists
 
-H-04 is **25 points** for “does it run?” — not for extra features (`docs/criteria.md`). The hackathon **four-script contract** lives in `demos/fastapi/README.md`: `testme`, `manifestme`, `deployme`, `README.md`. Posit Connect expects **`app.py` or an explicit entrypoint**, `requirements.txt`, `manifest.json`, `.python-version` inside **`APP_DIR`** (Step 4 sets `APP_DIR: 'app'` in the workflow).
-
-Your SPEC chose **one HTML page + Chart.js CDN** (no React build). The demo `app.py` is intentionally **thin** — same rule as `demos/pypackage`: **all statistics stay in `app/qc.py`**. JavaScript only **plots JSON** from the API.
-
-**Layout note:** You already have **`app/qc.py`** (Python package `app`). Avoid naming the FastAPI file `app.py` inside that folder (clashes with `import app.qc`). Use **`app/main.py`** with `app = FastAPI()` and entrypoint **`main:app`** for uvicorn/manifest.
-
----
-
-### Step 3 substeps (how to build API + dashboard)
-
-**3.1 — Merge demo files into `app/` without touching `qc.py`**
-
-Copy from `demos/fastapi/` into `app/`:
-
-| From demo | Into `app/` |
-|-----------|-------------|
-| `requirements.txt` | extend with `pandas`, `numpy` (pin with `==`) |
-| `.python-version` | `3.12` |
-| `testme.sh`, `manifestme.sh`, `deployme.sh` | adjust entrypoint to **`main:app`** |
-| `README.md` | short app-specific run instructions |
-
-Add **`app/main.py`** (new) instead of copying demo `app.py` verbatim. Keep **`app/qc.py`** as-is.
-
-**3.2 — Pin dependencies in `app/requirements.txt`**
-
-Minimum:
-
-- `fastapi`, `uvicorn[standard]` (demo pins)
-- `pandas`, `numpy` (for `qc.py`)
-
-Install in `venv_sigma`: `pip install -r app/requirements.txt`. Step 4 deploy uses **only** this file.
-
-**3.3 — FastAPI routes (thin wrappers only)**
-
-Suggested endpoints:
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/` | Serve dashboard HTML (or redirect to `/static/index.html`) |
-| `GET` | `/health` | `{ "status": "ok" }` for smoke tests |
-| `POST` | `/api/analyze` | `UploadFile` CSV → `pd.read_csv` → `analyze_incidents()` → JSON |
-| `POST` | `/api/incident` | JSON body with one row → append logic optional → return updated analysis |
-| `GET` | `/docs` | FastAPI OpenAPI (demo bonus for judges) |
-
-Rules:
-
-- **No** control-limit math in `main.py` or in the browser.
-- Return **`analyze_incidents` dict** (or a stable subset) so Step 5 demo can cite fields.
-
-**3.4 — Dashboard UI (`app/static/index.html` + optional `app/static/dashboard.js`)**
-
-One scrollable **supervisor dashboard** (`SPEC.md` §6):
-
-1. **Upload** — file input → `POST /api/analyze`
-2. **Summary cards** — mean, median, SD, p90, p95 from `summary`
-3. **Two SPC charts (Chart.js)** — Individuals + Moving Range from `chart_points` + `limits_log` (display minutes on I-chart; MR in log units or labeled axis)
-4. **Zone bar chart** — p90 or mean by zone from `zone_summaries`
-5. **Alerts list** — `zone_alerts` messages (`ucl`, `p90`)
-6. **Warnings** — show `warnings` array if present
-7. **Interpretation** — 1–2 static sentences under each section (“what to do if red”)
-
-Load Chart.js from a **CDN** (SPEC). No Node/npm build.
-
-**3.5 — Incident logging form (minimal)**
-
-HTML form: zone, priority, three timestamps, optional id → POST `/api/incident`.
-
-Simplest v1: server holds **in-memory list** for the session (lost on restart — OK per SPEC “no database”). Better v1: analyze **uploaded CSV only** and ship logging in a follow-up if time is short — but SPEC lists logging; at least one working path before submit.
-
-**3.6 — Wire static files in FastAPI**
-
-Use `StaticFiles` for `app/static/` and/or `HTMLResponse` for `/`. Enable CORS only if you split front/back hosts (not needed for single-page same origin).
-
-**3.7 — Local run scripts (Windows + bash)**
-
-- **`app/testme.sh`:** `cd` to `app/`, `uvicorn main:app --host 0.0.0.0 --port 8000`
-- **`app/testme.ps1` (optional):** same for Windows teammates
-
-Verify: open `http://localhost:8000`, upload `data/normal_operations.csv`, see charts.
-
-**3.8 — Cross-check numbers vs Step 2 (required for H-04)**
-
-In a Python shell or test:
-
-```python
-import pandas as pd
-from app.qc import analyze_incidents
-df = pd.read_csv("data/normal_operations.csv")
-direct = analyze_incidents(df)
-# POST same file to /api/analyze → JSON must match direct for summary, limits_log, n_incidents
-```
-
-Optional: add **`tests/test_api.py`** with `httpx` + `TestClient` if time permits — not required if manual check is documented in H-04 `result`.
-
-**3.9 — `app/README.md` (four-script contract)**
-
-Document: purpose, endpoints, **`./testme.sh`**, `./manifestme.sh`, `./deployme.sh`, link to repo `SPEC.md`.
-
-**3.10 — H-04 check-in**
-
-- Quote: server start command + one example JSON field (e.g. `limits_log.ucl_min`) matching pytest.
-- Do **not** start Step 4 until upload works once locally.
-
----
+- `app/main.py` — thin HTTP layer: `/api/samples/{name}`, `/api/upload`, `/api/overview`, `/api/zone/{zone}`, `/api/incident`, `/api/download`, `/health`, `/docs`. One dataset in memory; no database.
+- `app/static/` — `index.html`, `dashboard.js`, `styles.css`: sample buttons and CSV upload; `[Live | Daily | Weekly | Monthly | Yearly]`; zone cards (status, p90 vs normal p90, reason, pattern, conditions); zone detail (reasons, period vs baseline table, conditions table, I-MR chart with calls above the UCL in red, MR chart); incident-logging form with CSV download.
+- Four-script contract: `testme.sh` / `testme.ps1`, `manifestme.sh`, `deployme.sh`, `README.md`.
 
 ### Step 3 pitfalls
 
-- Renaming or breaking **`app/qc.py`** imports used by **`tests/test_qc.py`** (run `pytest` after every app change).
-- Putting **`APP_DIR: '.'`** in deploy workflow while the app lives in **`app/`** (manifest not found — fix in Step 4).
-- Chart.js computing limits in the browser instead of displaying server values.
+- Putting statistics in `main.py` or `dashboard.js` — they only call `qc.py` and display.
 - Forgetting **`pandas`/`numpy`** in `app/requirements.txt` (deploy crashes).
 
 ---
@@ -335,7 +98,7 @@ Document: purpose, endpoints, **`./testme.sh`**, `./manifestme.sh`, `./deployme.
 
 **Goal:** Judges open a **public URL** (logged-out browser); the live app returns **HTTP 200** and the **same QC numbers** as pytest on at least one `data/` CSV.
 
-**Done when:** `CONTRACT` H-06 definition of done — green GitHub Actions deploy (or a successful local `deployme.sh`), public URL loads the dashboard, upload/analysis still matches `analyze_incidents()`.
+**Done when:** `CONTRACT` H-06 definition of done — green GitHub Actions deploy (or a successful local `deployme.sh`), public URL loads the dashboard, and the zone overview still matches `analyze_incidents()`.
 
 **Points context:** H-06 does not add a separate rubric line; it **protects the 25 “working tool” points** — if judges cannot open your app, H-04 does not count (`CONTRACT.yaml`).
 
@@ -364,7 +127,7 @@ Both require a **committed `app/manifest.json`** written on a **developer machin
 
 - From repo root: `pytest tests` (all green).
 - Start server: `python -m uvicorn app.main:app --host 0.0.0.0 --port 8000` or `.\app\testme.ps1`.
-- Manual once: upload `data/normal_operations.csv`, confirm charts and summary.
+- Manual once: click **Zone patterns**, confirm the zone cards and one zone detail.
 
 Do not deploy until this works — Connect failures are harder to debug than laptop errors (`connect-publish` skill: run `testme` before `manifestme`).
 
@@ -434,7 +197,7 @@ source ../.env   # bash; on Windows load env vars another safe way
 ./deployme.sh
 ```
 
-Connect prints a **content URL**. Open it in a browser, test `/`, `/health`, upload CSV. Fix deploy logs before wiring CI.
+Connect prints a **content URL**. Open it in a browser, test `/`, `/health`, click a sample. Fix deploy logs before wiring CI.
 
 **4.7 — GitHub repo secrets (for Actions)**
 
@@ -462,7 +225,7 @@ Edit **only** the `env:` block at the top of `deploy-fastapi.yml`:
 env:
   APP_DIR: 'app'                      # NOT '.' — your FastAPI folder
   CONTENT_NAME: chiblings-6s-hackathon-fastapi   # optional; must be unique on server
-  CONTENT_TITLE: Chiblings EMS Response Monitor
+  CONTENT_TITLE: Chiblings NYC EMS Zone Monitor
   HEALTH_PATH: '/health'              # you implemented GET /health; demo used /docs
 ```
 
@@ -481,11 +244,11 @@ In Posit Connect UI for your app:
 
 - Confirm **Access** allows viewers without a Connect login (course instructions at deploy time).
 - Copy the **public content URL** into team notes (Step 5 goes in `README.md` and Devpost).
-- Logged-out check: open URL in incognito, load dashboard, upload `data/normal_operations.csv`, spot-check one number (e.g. mean response time) against pytest or `/api/analyze`.
+- Logged-out check: open URL in incognito, click **Zone patterns**, spot-check one number (e.g. Bronx Monthly p90) against pytest or `/api/overview`.
 
 **4.10 — H-06 check-in**
 
-- Set **`CONTRACT.yaml`** task **H-06** `status: done` and `result:` with: workflow run link or “local deploy”, public URL, and one line proving stats (e.g. “`/health` 200; normal_operations mean matches pytest”).
+- Set **`CONTRACT.yaml`** task **H-06** `status: done` and `result:` with: workflow run link or “local deploy”, public URL, and one line proving stats (e.g. “`/health` 200; zone_patterns Bronx p90 matches pytest”).
 - Team rule: **UI polish after first green deploy** — redeploy by pushing to `main` or re-running `deployme.sh`.
 
 **4.11 — Iterate after Step 4 (expected)**
@@ -503,7 +266,7 @@ Local dev unchanged (`testme.ps1`). Each meaningful change: test locally → if 
 - **Windows CRLF in `manifest.json`** — add `.gitattributes`, re-write manifest, recommit.
 - **`.python-version` mismatch** — e.g. file says `3.11` but manifest says `3.12`.
 - **Forgetting to regenerate manifest** after adding a package to `requirements.txt` — Connect install step fails.
-- **Bundling secrets or huge folders** inside `app/` — everything in `APP_DIR` goes up; keep data in repo `data/` only for Git, not required in bundle unless you intentionally ship sample CSVs in `static/`.
+- **Bundling secrets or huge folders** inside `app/` — everything in `APP_DIR` goes up; keep data in repo `data/` only for Git; the bundle rebuilds the samples with `simulate.py` instead of shipping CSVs.
 - **Assuming judges use the API key** — they use the **public** URL; fix Connect access policy, not auth in code (SPEC: no logins).
 - **Green CI but 500 in browser** — open Connect **Logs** tab; often import error or missing static path.
 - **HTTP 409 on first Actions deploy** — `CONTENT_NAME` collision; change `CONTENT_NAME` in workflow env.
@@ -514,7 +277,7 @@ Local dev unchanged (`testme.ps1`). Each meaningful change: test locally → if 
 
 ## Step 5 — Demo walkthrough and docs **(CONTRACT H-05, H-07, H-08)**
 
-**Goal:** `demo/README.md` steps for all three CSVs; top-level README for the tool; Devpost link; fresh clone + pytest + testme work.
+**Goal:** `demo/README.md` steps for all three datasets (stable_operations, zone_patterns, minimal_input); top-level README for the tool; Devpost link; fresh clone + pytest + testme work.
 
 **Substeps (brief):**
 
@@ -534,7 +297,7 @@ Local dev unchanged (`testme.ps1`). Each meaningful change: test locally → if 
 | 4 | H-06 | Live deploy |
 | 5 | H-05, H-07, H-08 | Demo + docs + public repo |
 
-**H-01** (fill `SPEC.md`) — mostly done; clean duplicate sections and leftover `FILL IN` when you touch SPEC again.
+**H-01** (fill `SPEC.md`) — done; SPEC, `docs/proposal.md` and this file use the same names.
 
 ---
 
@@ -547,4 +310,4 @@ Local dev unchanged (`testme.ps1`). Each meaningful change: test locally → if 
 
 ---
 
-*Team: Chiblings · Prompt #2 · Repo: `6s_hackathon`*
+*Team: Chiblings · Prompt #2 · Repo: `alptlg/6S_HACKATHON`*

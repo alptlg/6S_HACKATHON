@@ -12,3 +12,10 @@ rsconnect/
 .opencode/model-ladder-state.json
 
 .claude/settings.local.json
+
+# Python virtual environments
+.venv/
+venv*/
+
+# Raw NYC EMS download (recreate with: python data/nyc_normals.py)
+data/nyc_raw/

@@ -1,31 +1,79 @@
-"""Quality-control statistics for EMS dispatch-to-arrival response times."""
+"""Quality-control statistics for EMS dispatch-to-on-scene response times.
+
+Every number the dashboard shows comes from a function in this file. The API and the page only
+call these functions and display the result (see SPEC.md section 4 and docs/proposal.md).
+
+Method in one paragraph:
+    response_time_min = on_scene_time - dispatch_time (minutes). Response times are right-skewed,
+    so each zone gets an Individuals and Moving Range (I-MR) chart on ln(response_time_min).
+    Each NYC borough's "normal" (centerline, limits, p90) comes from 12 months of real FDNY
+    incidents (app/nyc_normals.json, built by data/nyc_normals.py). Limits never move with the
+    review period: center = mean of the logs, limits = center +/- 2.66 x average moving range,
+    MR chart UCL = 3.267 x average moving range. A zone's status in a review period compares the
+    calls in that period with its borough's normal: calls above the UCL, a run rule on daily
+    medians, and a bootstrap test of the period's p90 against the borough's normal p90.
+    A zone that is not an NYC borough falls back to its own first 14 days as the baseline.
+"""
 
 from __future__ import annotations
 
+import json
 import math
 import statistics
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, Iterable, NamedTuple
 
 import numpy as np
 import pandas as pd
 
-D2_N2 = 1.128
-I_LIMIT_MULT = 2.66  # individuals chart multiplier on MR-bar
-MR_UCL_MULT = 3.267  # moving-range UCL multiplier (n=2)
-P90_TARGET_MIN = 8.0  # NFPA-style alert threshold (SPEC)
-MIN_IMR_POINTS = 2
-MIN_ZONE_IMR = 8
+# --- constants (SPEC.md section 4) -------------------------------------------------------------
+I_LIMIT_MULT = 2.66  # individuals chart: 3 / d2, d2 = 1.128 for moving ranges of 2
+MR_UCL_MULT = 3.267  # moving range chart UCL: D4 for n = 2
+NORMALS_PATH = Path(__file__).resolve().parent / "nyc_normals.json"
+BOOTSTRAP_RESAMPLES = 1000
+BOOTSTRAP_SEED = 5300  # fixed so the same data always gives the same status
+RED_P90_CONFIDENCE = 0.99  # 95% across 5 boroughs, Bonferroni: 1 - 0.05 / 5 per borough
+WATCH_P90_CONFIDENCE = 0.95
+CHANCE_RATE_ABOVE_UCL = 0.00135  # one-sided 3-sigma tail: share of in-control calls above UCL
+RED_MIN_ABOVE_UCL = 3  # Red: at least this many calls above UCL ...
+RED_RATE_MULTIPLE = 3.0  # ... AND at least 3x the zone's normal rate of calls above UCL
+P90_PRACTICAL_MARGIN = 0.05  # p90 must be at least 5% above normal to matter operationally
+MIN_P90_CALLS = 20  # fewer calls in the period -> no p90 test
+RUN_RULE_DAYS = 8  # Red: 8 consecutive daily medians above the centerline
+BASELINE_DAYS = 14  # control limits come from each zone's first 14 days
+MIN_BASELINE_CALLS = 20  # fewer baseline calls -> "insufficient data"
+WORKLOAD_WINDOW_MIN = 15  # recent_call_volume = calls in the same zone in the previous 15 minutes
+LONG_RESPONSE_FLAG_MIN = 120  # responses longer than this are kept but flagged for review
+TRAFFIC_SHARE_MARGIN = 0.15  # traffic marked HIGH if share of High calls >= baseline share + 0.15
 
-REQUIRED_COLUMNS = [
-    "incident_id",
-    "zone",
-    "priority",
-    "call_received",
-    "dispatch_time",
-    "arrival_time",
+REQUIRED_COLUMNS = ["incident_id", "dispatch_time", "on_scene_time", "zone"]
+OPTIONAL_COLUMNS = ["call_received", "traffic_level", "available_units", "priority"]
+CONDITION_COLUMNS = ["traffic_level", "available_units", "call_received"]
+
+TIME_OF_DAY_BINS = [  # (first hour, last hour, label)
+    (0, 5, "Overnight"),
+    (6, 9, "Morning"),
+    (10, 15, "Day"),
+    (16, 19, "Evening peak"),
+    (20, 23, "Night"),
 ]
 
+PERIODS = {  # review period -> length of the window ending at the latest dispatch in the data
+    "live": pd.Timedelta(hours=3),
+    "daily": pd.Timedelta(days=1),
+    "weekly": pd.Timedelta(days=7),
+    "monthly": pd.Timedelta(days=30),
+    "yearly": pd.Timedelta(days=365),
+}
 
+STATUS_NORMAL = "normal"
+STATUS_WATCH = "watch"
+STATUS_ATTENTION = "needs_attention"
+STATUS_INSUFFICIENT = "insufficient_data"
+
+
+# --- core I-MR statistics (plain inputs, plain outputs) ---------------------------------------
 class Limits(NamedTuple):
     """Individuals chart limits on the scale the values were computed in."""
 
@@ -36,7 +84,7 @@ class Limits(NamedTuple):
 
 
 class LogIMRLimits(NamedTuple):
-    """I-MR limits on log(response time); minutes fields are exp(log) for display."""
+    """I-MR limits on ln(response time); the *_min fields are exp(log) for display."""
 
     center_log: float
     lcl_log: float
@@ -61,228 +109,514 @@ def _clean_values(values: Iterable[float], minimum: int) -> list[float]:
 
 
 def moving_ranges(values: list[float]) -> list[float]:
+    """|x_i - x_(i-1)| for consecutive values."""
     return [abs(b - a) for a, b in zip(values, values[1:])]
 
 
 def control_limits_raw(values: Iterable[float]) -> Limits:
-    """I-MR limits on raw minutes (SPEC known-answer check uses 2.66 * MR-bar)."""
-    xs = _clean_values(values, MIN_IMR_POINTS)
+    """I-MR limits on raw minutes (kept for the SPEC raw known-answer check)."""
+    xs = _clean_values(values, 2)
     center = statistics.fmean(xs)
-    mrs = moving_ranges(xs)
-    mr_bar = statistics.fmean(mrs) if mrs else 0.0
-    return Limits(
-        center=center,
-        lower=center - I_LIMIT_MULT * mr_bar,
-        upper=center + I_LIMIT_MULT * mr_bar,
-        mr_bar=mr_bar,
-    )
+    mr_bar = statistics.fmean(moving_ranges(xs))
+    return Limits(center, center - I_LIMIT_MULT * mr_bar, center + I_LIMIT_MULT * mr_bar, mr_bar)
 
 
 def imr_limits_log(values: Iterable[float]) -> LogIMRLimits:
-    """Primary chart method: I-MR on ln(response_min) per SPEC."""
-    xs = _clean_values(values, MIN_IMR_POINTS)
+    """I-MR limits on ln(response_time_min): the chart the tool uses."""
+    xs = _clean_values(values, 2)
     ys = [math.log(x) for x in xs]
     center_log = statistics.fmean(ys)
-    mrs = moving_ranges(ys)
-    mr_bar_log = statistics.fmean(mrs) if mrs else 0.0
+    mr_bar_log = statistics.fmean(moving_ranges(ys))
+    if mr_bar_log == 0:
+        raise ValueError("no variation in the baseline (every response time is the same); "
+                         "control limits are undefined")
     lcl_log = center_log - I_LIMIT_MULT * mr_bar_log
     ucl_log = center_log + I_LIMIT_MULT * mr_bar_log
-    mr_ucl_log = MR_UCL_MULT * mr_bar_log
     return LogIMRLimits(
         center_log=center_log,
         lcl_log=lcl_log,
         ucl_log=ucl_log,
         mr_bar_log=mr_bar_log,
-        mr_ucl_log=mr_ucl_log,
+        mr_ucl_log=MR_UCL_MULT * mr_bar_log,
         center_min=math.exp(center_log),
         lcl_min=math.exp(lcl_log),
         ucl_min=math.exp(ucl_log),
     )
 
 
-def imr_chart_points(
-    df: pd.DataFrame,
-    limits: LogIMRLimits,
-    *,
-    time_col: str = "call_received",
-    value_col: str = "response_min",
-    zone_col: str = "zone",
-    id_col: str = "incident_id",
-) -> list[dict[str, Any]]:
-    """One row per incident in time order with log-scale OOC flags."""
-    ordered = df.sort_values(time_col).reset_index(drop=True)
-    ys = [math.log(float(v)) for v in ordered[value_col]]
-    mrs = [None] + moving_ranges(ys)
-    points: list[dict[str, Any]] = []
-    for i, row in ordered.iterrows():
-        y = ys[i]
-        ooc = y > limits.ucl_log or y < limits.lcl_log
-        mr = mrs[i]
-        mr_ooc = mr is not None and mr > limits.mr_ucl_log
-        points.append(
-            {
-                "incident_id": row[id_col],
-                "zone": row[zone_col],
-                "call_received": str(row[time_col]),
-                "response_min": float(row[value_col]),
-                "y_log": y,
-                "moving_range_log": mr,
-                "individual_ooc": ooc,
-                "mr_ooc": mr_ooc,
-            }
-        )
-    return points
-
-
 def percentile_linear(values: Iterable[float], q: float) -> float:
+    """Percentile with NumPy's default linear interpolation (p90 of [6,8,7,9,10] = 9.6)."""
     arr = np.asarray(list(values), dtype=float)
+    if arr.size == 0:
+        raise ValueError("need at least 1 value for a percentile")
     return float(np.percentile(arr, q, method="linear"))
 
 
 def response_summary(times: Iterable[float]) -> dict[str, float]:
+    """Mean, median, SD, p90, p95, n of response times in minutes."""
     xs = _clean_values(times, 1)
-    if len(xs) == 1:
-        return {
-            "mean": xs[0],
-            "median": xs[0],
-            "stdev": 0.0,
-            "p90": xs[0],
-            "p95": xs[0],
-            "n": 1.0,
-        }
     return {
         "mean": statistics.fmean(xs),
         "median": statistics.median(xs),
-        "stdev": statistics.stdev(xs),
+        "stdev": statistics.stdev(xs) if len(xs) > 1 else 0.0,
         "p90": percentile_linear(xs, 90),
         "p95": percentile_linear(xs, 95),
         "n": float(len(xs)),
     }
 
 
-def add_response_minutes(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    call = pd.to_datetime(out["call_received"])
-    dispatch = pd.to_datetime(out["dispatch_time"])
-    arrival = pd.to_datetime(out["arrival_time"])
-    out["response_min"] = (arrival - dispatch).dt.total_seconds() / 60.0
-    out["call_received"] = call
-    out["dispatch_time"] = dispatch
-    out["arrival_time"] = arrival
-    return out.sort_values("call_received").reset_index(drop=True)
+def bootstrap_percentile_ci(
+    values: Iterable[float], q: float = 90, confidence: float = 0.95,
+    resamples: int = BOOTSTRAP_RESAMPLES, seed: int = BOOTSTRAP_SEED,
+) -> tuple[float, float]:
+    """Percentile bootstrap confidence interval for the q-th percentile (two-sided).
+
+    Resample the values with replacement `resamples` times, take the q-th percentile of each
+    resample, and return the (1-confidence)/2 and 1-(1-confidence)/2 quantiles of those.
+    """
+    stats = bootstrap_percentiles(values, q, resamples, seed)
+    alpha = 1 - confidence
+    lo, hi = np.quantile(stats, [alpha / 2, 1 - alpha / 2])
+    return float(lo), float(hi)
 
 
-def validate_incidents(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    warnings: list[str] = []
+def bootstrap_percentiles(
+    values: Iterable[float], q: float = 90,
+    resamples: int = BOOTSTRAP_RESAMPLES, seed: int = BOOTSTRAP_SEED,
+) -> np.ndarray:
+    """The q-th percentile of each of `resamples` bootstrap resamples (fixed seed)."""
+    arr = np.asarray(list(values), dtype=float)
+    if arr.size < 2:
+        raise ValueError("need at least 2 values for a bootstrap interval")
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, arr.size, size=(resamples, arr.size))
+    return np.percentile(arr[idx], q, axis=1, method="linear")
+
+
+def longest_run_above(values: Iterable[float], center: float) -> tuple[int, int | None]:
+    """Longest run of consecutive values strictly above center: (length, start index)."""
+    best, best_start, run, start = 0, None, 0, 0
+    for i, v in enumerate(values):
+        if v > center:
+            if run == 0:
+                start = i
+            run += 1
+            if run > best:
+                best, best_start = run, start
+        else:
+            run = 0
+    return best, best_start
+
+
+# --- derived fields ---------------------------------------------------------------------------
+def time_of_day(hour: int) -> str:
+    """Overnight 0-5, Morning 6-9, Day 10-15, Evening peak 16-19, Night 20-23."""
+    for first, last, label in TIME_OF_DAY_BINS:
+        if first <= hour <= last:
+            return label
+    raise ValueError(f"hour must be 0-23, got {hour}")
+
+
+def recent_call_volume(dispatch_times: pd.Series, zones: pd.Series) -> pd.Series:
+    """Calls dispatched in the same zone during the previous 15 minutes (the call itself excluded).
+
+    A call at time t counts earlier calls with t - 15 min <= time < t.
+    """
+    out = pd.Series(0, index=dispatch_times.index, dtype=int)
+    window = np.timedelta64(WORKLOAD_WINDOW_MIN, "m")
+    for _, idx in zones.groupby(zones).groups.items():
+        t = dispatch_times.loc[idx].sort_values()
+        vals = t.to_numpy(dtype="datetime64[ns]")
+        left = np.searchsorted(vals, vals - window, side="left")
+        here = np.searchsorted(vals, vals, side="left")
+        out.loc[t.index] = here - left
+    return out
+
+
+def prepare_incidents(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Validate the CSV and add derived fields. Returns (clean rows sorted by dispatch, warnings)."""
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(f"missing required columns: {missing}")
+    warnings: list[str] = []
+    work = df.copy()
+    work["incident_id"] = work["incident_id"].astype(str)
+    work["zone"] = work["zone"].astype(str).str.strip()
+    for col in ["dispatch_time", "on_scene_time"] + (
+        ["call_received"] if "call_received" in work.columns else []
+    ):
+        work[col] = pd.to_datetime(work[col], errors="coerce")
 
-    work = add_response_minutes(df)
-    if work["incident_id"].duplicated().any():
-        warnings.append("duplicate incident_id values found")
+    n_missing = int(work[["dispatch_time", "on_scene_time"]].isna().any(axis=1).sum())
+    if n_missing:
+        warnings.append(f"dropped {n_missing} rows with a missing or unreadable dispatch/on-scene time")
+        work = work.dropna(subset=["dispatch_time", "on_scene_time"])
+
+    n_dup = int(work["incident_id"].duplicated().sum())
+    if n_dup:
+        warnings.append(f"dropped {n_dup} rows with a duplicate incident_id")
         work = work.drop_duplicates(subset=["incident_id"], keep="first")
 
-    bad_order = (work["call_received"] > work["dispatch_time"]) | (
-        work["dispatch_time"] > work["arrival_time"]
-    )
-    if bad_order.any():
-        n_bad = int(bad_order.sum())
-        warnings.append(f"dropped {n_bad} rows with invalid timestamp order")
-        work = work.loc[~bad_order]
+    work["response_time_min"] = (work["on_scene_time"] - work["dispatch_time"]).dt.total_seconds() / 60
+    bad = work["response_time_min"] <= 0
+    if bad.any():
+        warnings.append(f"dropped {int(bad.sum())} rows where on_scene_time is not after dispatch_time")
+        work = work.loc[~bad]
 
-    if (work["response_min"] <= 0).any():
-        n_bad = int((work["response_min"] <= 0).sum())
-        warnings.append(f"dropped {n_bad} rows with nonpositive response time")
-        work = work.loc[work["response_min"] > 0]
+    if "call_received" in work.columns:
+        late = work["call_received"].notna() & (work["call_received"] > work["dispatch_time"])
+        if late.any():
+            warnings.append(
+                f"{int(late.sum())} rows have call_received after dispatch_time; "
+                "their call-to-dispatch time is ignored"
+            )
+            work.loc[late, "call_received"] = pd.NaT
+        work["call_to_dispatch_min"] = (
+            (work["dispatch_time"] - work["call_received"]).dt.total_seconds() / 60
+        )
 
-    if len(work) < MIN_IMR_POINTS:
-        warnings.append(f"fewer than {MIN_IMR_POINTS} valid rows; I-MR limits unavailable")
+    long_calls = work["response_time_min"] > LONG_RESPONSE_FLAG_MIN
+    if long_calls.any():
+        warnings.append(
+            f"{int(long_calls.sum())} responses over {LONG_RESPONSE_FLAG_MIN} min kept; "
+            "check for data-entry errors"
+        )
 
-    if not work["call_received"].is_monotonic_increasing:
-        warnings.append("re-sorted rows by call_received")
-
-    work = work.sort_values("call_received").reset_index(drop=True)
+    work = work.sort_values("dispatch_time").reset_index(drop=True)
+    work["time_of_day"] = work["dispatch_time"].dt.hour.map(time_of_day)
+    work["recent_call_volume"] = recent_call_volume(work["dispatch_time"], work["zone"])
     return work, warnings
 
 
-def zone_summaries(df: pd.DataFrame) -> pd.DataFrame:
-    rows = []
-    for zone, grp in df.groupby("zone", sort=True):
-        stats = response_summary(grp["response_min"])
-        stats["zone"] = zone
-        rows.append(stats)
-    return pd.DataFrame(rows).set_index("zone")
+def available_conditions(df: pd.DataFrame) -> list[str]:
+    """Which optional condition columns are present with at least one value."""
+    return [c for c in CONDITION_COLUMNS if c in df.columns and df[c].notna().any()]
 
 
-def zone_alerts(
-    df: pd.DataFrame,
-    chart_points: list[dict[str, Any]],
-    zone_summary: pd.DataFrame,
-    limits: LogIMRLimits | None,
-) -> list[dict[str, Any]]:
-    alerts: list[dict[str, Any]] = []
-    zones = sorted(df["zone"].unique())
-    for zone in zones:
-        reasons: list[str] = []
-        if limits is not None:
-            zone_points = [p for p in chart_points if p["zone"] == zone]
-            if any(p["individual_ooc"] for p in zone_points):
-                reasons.append("ucl")
-        p90 = float(zone_summary.loc[zone, "p90"]) if zone in zone_summary.index else None
-        if p90 is not None and p90 > P90_TARGET_MIN:
-            reasons.append("p90")
-        if reasons:
-            alerts.append(
-                {
-                    "zone": zone,
-                    "reasons": reasons,
-                    "p90_min": p90,
-                    "message": _alert_message(zone, reasons, p90),
-                }
-            )
-    return alerts
+# --- review period and baseline ---------------------------------------------------------------
+def period_window(df: pd.DataFrame, period: str) -> pd.DataFrame:
+    """Rows whose dispatch_time falls in the review period ending at the latest dispatch."""
+    if period not in PERIODS:
+        raise ValueError(f"period must be one of {list(PERIODS)}, got {period!r}")
+    if df.empty:
+        return df
+    end = df["dispatch_time"].max()
+    return df.loc[df["dispatch_time"] > end - PERIODS[period]]
 
 
-def _alert_message(zone: str, reasons: list[str], p90: float | None) -> str:
-    parts = []
-    if "ucl" in reasons:
-        parts.append("at least one response above the log-scale upper control limit")
-    if "p90" in reasons:
-        parts.append(f"90th percentile {p90:.1f} min exceeds {P90_TARGET_MIN:.0f} min target")
-    return f"{zone}: " + "; ".join(parts)
+def baseline_rows(zone_df: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
+    """A zone's first 14 days. Returns (rows, full_length) where full_length is False when the
+    zone's data spans less than 14 days (then all its rows are the baseline)."""
+    start = zone_df["dispatch_time"].min()
+    end = start + pd.Timedelta(days=BASELINE_DAYS)
+    full = zone_df["dispatch_time"].max() >= end
+    return zone_df.loc[zone_df["dispatch_time"] < end], bool(full)
 
 
-def analyze_incidents(df: pd.DataFrame) -> dict[str, Any]:
-    """Full pipeline for API / dashboard (Step 3)."""
-    clean, warnings = validate_incidents(df)
-    result: dict[str, Any] = {
-        "warnings": warnings,
-        "n_incidents": len(clean),
-        "summary": None,
-        "zone_summaries": None,
-        "limits_log": None,
-        "limits_raw": None,
-        "chart_points": [],
-        "zone_alerts": [],
+# --- zone status ------------------------------------------------------------------------------
+def zone_status(
+    window_times: list[float],
+    window_days: list[str],
+    limits: LogIMRLimits,
+    normal_p90: float,
+    baseline_rate_above_ucl: float = CHANCE_RATE_ABOVE_UCL,
+) -> dict[str, Any]:
+    """Status of one zone in one review period.
+
+    window_times: response times (min) of the zone's calls in the period, in time order.
+    window_days: the calendar day (YYYY-MM-DD) of each of those calls.
+    limits: the zone's normal control limits (NYC borough normal, or its first 14 days).
+    normal_p90: the zone's normal 90th percentile (same source as the limits).
+    baseline_rate_above_ucl: share of the normal calls above the UCL. The log transform makes
+        the data roughly (not exactly) normal, so the "expected by chance" number of calls
+        above the UCL uses this rate, never less than 0.135%.
+    """
+    n = len(window_times)
+    if n == 0:
+        return {"status": STATUS_INSUFFICIENT, "reasons": ["no calls in this period"], "n": 0}
+    logs = [math.log(t) for t in window_times]
+    n_above = sum(y > limits.ucl_log for y in logs)
+    normal_rate = max(CHANCE_RATE_ABOVE_UCL, baseline_rate_above_ucl)
+    expected = normal_rate * n
+    beyond_chance = n_above >= 1 and n_above > expected + 3 * math.sqrt(expected)
+    rate = n_above / n
+    p90_bar = normal_p90 * (1 + P90_PRACTICAL_MARGIN)
+    p90 = percentile_linear(window_times, 90)
+
+    daily = (
+        pd.DataFrame({"day": window_days, "y": logs}).groupby("day", sort=True)["y"].median()
+    )
+    run_len, run_start = longest_run_above(daily.tolist(), limits.center_log)
+    run_start_day = daily.index[run_start] if run_start is not None else None
+
+    # bootstrap test: is this period's p90 above the zone's normal p90?
+    p90_ci95 = p90_ci99 = None
+    if n >= MIN_P90_CALLS:
+        boot = bootstrap_percentiles(window_times, 90)
+        p90_ci95 = tuple(float(v) for v in np.quantile(boot, [0.025, 0.975]))
+        p90_ci99 = tuple(float(v) for v in np.quantile(boot, [0.005, 0.995]))
+
+    red, watch = [], []
+    if n_above >= RED_MIN_ABOVE_UCL and beyond_chance and rate >= RED_RATE_MULTIPLE * normal_rate:
+        red.append(f"{n_above} calls above the upper control limit ({rate:.1%} of calls; "
+                   f"normally {normal_rate:.1%})")
+    if run_len >= RUN_RULE_DAYS:
+        red.append(f"sustained upward shift: {run_len} consecutive daily medians above the "
+                   f"centerline since {run_start_day}")
+    if p90_ci99 and p90_ci99[0] > p90_bar:
+        red.append(f"p90 {p90:.1f} min is significantly above the normal {normal_p90:.1f} min "
+                   f"(99% bootstrap interval {p90_ci99[0]:.1f}-{p90_ci99[1]:.1f})")
+    if not red:
+        if beyond_chance:
+            watch.append(f"{n_above} calls above the upper control limit; about "
+                         f"{expected:.1f} expected by chance")
+        if p90_ci95 and p90_ci95[0] > p90_bar:
+            watch.append(f"p90 {p90:.1f} min is above the normal {normal_p90:.1f} min "
+                         f"(95% bootstrap interval {p90_ci95[0]:.1f}-{p90_ci95[1]:.1f})")
+    status = STATUS_ATTENTION if red else (STATUS_WATCH if watch else STATUS_NORMAL)
+    return {
+        "status": status,
+        "reasons": red or watch or ["within normal range"],
+        "n": n,
+        "n_above_ucl": n_above,
+        "expected_above_ucl": expected,
+        "p90": p90,
+        "normal_p90": normal_p90,
+        "p90_ci95": p90_ci95,
+        "p90_ci99": p90_ci99,
+        "longest_daily_run": run_len,
+        "shift_start_day": run_start_day if run_len >= RUN_RULE_DAYS else None,
     }
-    if len(clean) == 0:
+
+
+# --- possible operational conditions ---------------------------------------------------------
+TRAFFIC_ORDER = {"Low": 0, "Medium": 1, "High": 2}
+
+
+def compare_conditions(baseline: pd.DataFrame, window: pd.DataFrame) -> dict[str, Any]:
+    """Compare the period's operating conditions with the zone's baseline.
+
+    Returns {"available": bool, "conditions": [...], "time_of_day": str | None}. Each condition
+    has name, level (HIGH / LOW / LONG / NORMAL), current, baseline and flagged.
+    """
+    present = available_conditions(window)
+    conditions: list[dict[str, Any]] = []
+
+    # workload is always derivable from timestamps
+    wl_now = float(window["recent_call_volume"].median())
+    wl_p75 = float(baseline["recent_call_volume"].quantile(0.75))
+    conditions.append({
+        "name": "Workload", "unit": "calls in previous 15 min",
+        "current": wl_now, "baseline": float(baseline["recent_call_volume"].median()),
+        "flagged": wl_now > wl_p75, "level": "HIGH" if wl_now > wl_p75 else "NORMAL",
+    })
+    if "traffic_level" in present:
+        share_now = float((window["traffic_level"] == "High").mean())
+        share_base = float((baseline["traffic_level"] == "High").mean())
+        flag = share_now >= share_base + TRAFFIC_SHARE_MARGIN
+        conditions.append({
+            "name": "Traffic", "unit": "share of calls in High traffic",
+            "current": share_now, "baseline": share_base,
+            "flagged": flag, "level": "HIGH" if flag else "NORMAL",
+        })
+    if "available_units" in present:
+        u_now = float(window["available_units"].median())
+        u_p25 = float(baseline["available_units"].quantile(0.25))
+        conditions.append({
+            "name": "Units", "unit": "available ambulances at dispatch",
+            "current": u_now, "baseline": float(baseline["available_units"].median()),
+            "flagged": u_now < u_p25, "level": "LOW" if u_now < u_p25 else "NORMAL",
+        })
+    if "call_received" in present and "call_to_dispatch_min" in window.columns:
+        c_now = float(window["call_to_dispatch_min"].median())
+        c_p75 = float(baseline["call_to_dispatch_min"].quantile(0.75))
+        conditions.append({
+            "name": "Call-to-dispatch", "unit": "minutes from call to dispatch",
+            "current": c_now, "baseline": float(baseline["call_to_dispatch_min"].median()),
+            "flagged": c_now > c_p75, "level": "LONG" if c_now > c_p75 else "NORMAL",
+        })
+
+    # time-of-day pattern among long responses (above the baseline p90)
+    long_cut = float(baseline["response_time_min"].quantile(0.9))
+    long_calls = window.loc[window["response_time_min"] > long_cut, "time_of_day"]
+    tod = None
+    if len(long_calls) >= 5:
+        top = long_calls.value_counts(normalize=True)
+        if top.iloc[0] >= 0.5:
+            tod = str(top.index[0])
+    return {
+        "available": bool(set(present) & {"traffic_level", "available_units"}),
+        "conditions": conditions,
+        "time_of_day": tod,
+    }
+
+
+def pattern_label(status: str, conditions: dict[str, Any]) -> str | None:
+    """One-line pattern for a flagged zone (docs/proposal.md section 6)."""
+    if status not in (STATUS_WATCH, STATUS_ATTENTION):
+        return None
+    if not conditions["available"]:
+        return "Operational contributing factors are unavailable in the uploaded data"
+    flagged = {c["name"] for c in conditions["conditions"] if c["flagged"]}
+    traffic = "Traffic" in flagged
+    workload = "Workload" in flagged
+    resource = bool(flagged & {"Units", "Call-to-dispatch"})
+    if traffic and (workload or resource):
+        return "Combined operational stress"
+    if traffic:
+        return "Travel conditions"
+    if workload and resource:
+        return "Demand / resource pressure"
+    if workload:
+        return "High-demand pressure"
+    if resource:
+        return "Resource constraint"
+    return "Unexplained special cause: manual incident review recommended"
+
+
+# --- borough normals (real NYC data) ----------------------------------------------------------
+ZONE_ALIASES = {
+    "bronx": "Bronx", "brooklyn": "Brooklyn", "manhattan": "Manhattan", "queens": "Queens",
+    "staten island": "Staten Island", "richmond / staten island": "Staten Island",
+    "richmond": "Staten Island",
+}
+
+
+@lru_cache(maxsize=1)
+def load_normals() -> dict[str, Any]:
+    """app/nyc_normals.json: per-borough normal statistics from 12 months of FDNY incidents."""
+    if not NORMALS_PATH.exists():
+        return {"boroughs": {}}
+    return json.loads(NORMALS_PATH.read_text())
+
+
+def borough_normal(zone: str) -> dict[str, Any] | None:
+    """The NYC normal for a zone name (case-insensitive borough name), or None."""
+    name = ZONE_ALIASES.get(str(zone).strip().lower())
+    return load_normals()["boroughs"].get(name) if name else None
+
+
+def limits_from_normal(normal: dict[str, Any]) -> LogIMRLimits:
+    return LogIMRLimits(
+        center_log=normal["center_log"], lcl_log=normal["lcl_log"], ucl_log=normal["ucl_log"],
+        mr_bar_log=normal["mr_bar_log"], mr_ucl_log=normal["mr_ucl_log"],
+        center_min=normal["center_min"], lcl_min=normal["lcl_min"], ucl_min=normal["ucl_min"],
+    )
+
+
+# --- full pipeline used by the API ------------------------------------------------------------
+def _insufficient(out: dict[str, Any], reason: str, zdf: pd.DataFrame) -> dict[str, Any]:
+    out.update({"status": STATUS_INSUFFICIENT, "reasons": [reason],
+                "summary": response_summary(zdf["response_time_min"]) if len(zdf) else None,
+                "normal": None, "limits": None, "conditions": None, "pattern": None})
+    return out
+
+
+def analyze_zone(
+    clean: pd.DataFrame, zone: str, period: str, *, include_points: bool = False,
+) -> dict[str, Any]:
+    """Status, statistical reasons, conditions and (optionally) chart points for one zone."""
+    zdf = clean.loc[clean["zone"] == zone]
+    base, full = baseline_rows(zdf)  # the data's own first 14 days (conditions, fallback limits)
+    window = period_window(clean, period)
+    window = window.loc[window["zone"] == zone]
+    out: dict[str, Any] = {"zone": zone, "period": period, "notes": []}
+
+    nyc = borough_normal(zone)
+    if nyc is not None:
+        limits = limits_from_normal(nyc)
+        normal = {
+            "source": "NYC EMS incidents, 12 months (" + load_normals().get("window", {}).get("from", "")[:10]
+                      + " to " + load_normals().get("window", {}).get("to_exclusive", "")[:10] + ")",
+            "n": nyc["n"], "median": nyc["median_min"], "mean": nyc["mean_min"],
+            "stdev": nyc["sd_min"], "p90": nyc["p90_min"], "p95": nyc["p95_min"],
+            "rate_above_ucl": nyc["rate_above_ucl"],
+        }
+    else:
+        out["notes"].append(f"{zone}: not an NYC borough, so its first {BASELINE_DAYS} days are "
+                            "used as its normal")
+        if not full:
+            out["notes"].append(f"{zone}: data spans less than {BASELINE_DAYS} days; "
+                                "all of it is used as the baseline")
+        if len(base) < MIN_BASELINE_CALLS:
+            return _insufficient(out, f"only {len(base)} baseline calls; at least "
+                                      f"{MIN_BASELINE_CALLS} needed for control limits", zdf)
+        try:
+            limits = imr_limits_log(base["response_time_min"])
+        except ValueError as err:
+            return _insufficient(out, str(err), zdf)
+        bs = response_summary(base["response_time_min"])
+        normal = {"source": f"this zone's first {BASELINE_DAYS} days", **bs,
+                  "rate_above_ucl": float((np.log(base["response_time_min"]) > limits.ucl_log).mean())}
+
+    if window.empty:
+        return _insufficient(out, "no calls in this period", zdf)
+    status = zone_status(
+        window["response_time_min"].tolist(),
+        window["dispatch_time"].dt.strftime("%Y-%m-%d").tolist(),
+        limits, normal["p90"], normal["rate_above_ucl"],
+    )
+    conditions = compare_conditions(base, window) if len(base) >= MIN_BASELINE_CALLS else None
+    out.update({
+        "status": status["status"],
+        "reasons": status["reasons"],
+        "metrics": status,
+        "summary": response_summary(window["response_time_min"]),
+        "normal": normal,
+        "limits": limits._asdict(),
+        "conditions": conditions,
+        "pattern": pattern_label(status["status"], conditions) if conditions else
+                   ("Operational contributing factors are unavailable in the uploaded data"
+                    if status["status"] in (STATUS_WATCH, STATUS_ATTENTION) else None),
+    })
+    if include_points:
+        logs = np.log(window["response_time_min"].to_numpy())
+        mrs = np.concatenate([[np.nan], np.abs(np.diff(logs))])
+        out["points"] = [
+            {
+                "incident_id": iid, "dispatch_time": str(t), "response_time_min": float(rt),
+                "above_ucl": bool(y > limits.ucl_log), "below_lcl": bool(y < limits.lcl_log),
+                "moving_range_log": None if np.isnan(mr) else float(mr),
+                "mr_above_ucl": bool(not np.isnan(mr) and mr > limits.mr_ucl_log),
+            }
+            for iid, t, rt, y, mr in zip(
+                window["incident_id"], window["dispatch_time"], window["response_time_min"],
+                logs, mrs,
+            )
+        ]
+    return out
+
+
+def analyze_incidents(df: pd.DataFrame, period: str = "monthly") -> dict[str, Any]:
+    """Zone overview for the dashboard: one card per zone in the chosen review period."""
+    clean, warnings = prepare_incidents(df)
+    return overview(clean, warnings, period)
+
+
+def overview(clean: pd.DataFrame, warnings: list[str], period: str = "monthly") -> dict[str, Any]:
+    """Same as analyze_incidents, for rows already passed through prepare_incidents."""
+    if period not in PERIODS:
+        raise ValueError(f"period must be one of {list(PERIODS)}, got {period!r}")
+    warnings = list(warnings)
+    normals = load_normals()
+    result: dict[str, Any] = {
+        "period": period,
+        "normals_source": normals.get("source"),
+        "normals_url": normals.get("source_url"),
+        "normals_window": normals.get("window"),
+        "warnings": warnings,
+        "n_incidents": int(len(clean)),
+        "data_start": str(clean["dispatch_time"].min()) if len(clean) else None,
+        "data_end": str(clean["dispatch_time"].max()) if len(clean) else None,
+        "conditions_available": bool(set(available_conditions(clean))
+                                     & {"traffic_level", "available_units"}),
+        "zones": [],
+    }
+    if clean.empty:
         warnings.append("no valid incidents to analyze")
         return result
-
-    times = clean["response_min"].tolist()
-    result["summary"] = response_summary(times)
-    zs = zone_summaries(clean)
-    result["zone_summaries"] = zs.reset_index().to_dict(orient="records")
-
-    if len(clean) >= MIN_IMR_POINTS:
-        result["limits_raw"] = control_limits_raw(times)._asdict()
-        lim = imr_limits_log(times)
-        result["limits_log"] = lim._asdict()
-        points = imr_chart_points(clean, lim)
-        result["chart_points"] = points
-        result["zone_alerts"] = zone_alerts(clean, points, zs, lim)
-    else:
-        result["zone_alerts"] = zone_alerts(clean, [], zs, None)
-
+    for zone in sorted(clean["zone"].unique()):
+        z = analyze_zone(clean, zone, period)
+        warnings.extend(z.pop("notes"))
+        result["zones"].append(z)
     return result

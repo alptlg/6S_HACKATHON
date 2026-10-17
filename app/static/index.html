@@ -3,63 +3,162 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Chiblings EMS Response Monitor</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <title>Chiblings NYC EMS Zone Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <!-- Posit Connect serves the app under /content/{guid}/ — set base so static/ and api/ resolve correctly -->
+  <base href="/" />
+  <script>
+    (function () {
+      var path = window.location.pathname;
+      if (!path.endsWith("/")) path += "/";
+      document.querySelector("base").setAttribute("href", path);
+    })();
+  </script>
+  <link rel="stylesheet" href="static/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-  <header>
-    <h1>EMS Response Monitor</h1>
-    <p class="subtitle">Dispatch supervisor view — log-scale I-MR on dispatch-to-arrival times</p>
+  <div class="bg-orbs" aria-hidden="true">
+    <span class="orb orb-a"></span>
+    <span class="orb orb-b"></span>
+    <span class="orb orb-c"></span>
+  </div>
+
+  <header class="hero fade-in">
+    <p class="eyebrow">Chiblings · NYC EMS dispatch</p>
+    <h1>EMS Zone Monitor</h1>
+    <p class="subtitle">Statistical early warning for ambulance dispatch-to-on-scene times.
+      It flags zones; every operational decision stays with the supervisor.</p>
   </header>
 
-  <section class="panel">
-    <h2>Upload incident CSV</h2>
-    <p class="help">Use files from <code>data/</code> (e.g. normal_operations.csv) or your own CAD export.</p>
-    <input type="file" id="csvFile" accept=".csv" />
-    <button type="button" id="btnAnalyze">Analyze upload</button>
-  </section>
-
-  <section class="panel">
-    <h2>Log one incident (session)</h2>
-    <form id="incidentForm" class="grid-form">
-      <label>Zone <input name="zone" required placeholder="North" /></label>
-      <label>Priority
-        <select name="priority">
-          <option>High</option>
-          <option>Medium</option>
-          <option>Low</option>
-        </select>
+  <section class="panel region-panel fade-in delay-1">
+    <h2>1 · Choose data</h2>
+    <p class="help">Each scenario is simulated (5 NYC boroughs, 60 days). Or upload your own CSV with
+      <code>incident_id, dispatch_time, on_scene_time, zone</code> (optional:
+      <code>call_received, traffic_level, available_units, priority</code>).</p>
+    <div class="region-buttons" role="group" aria-label="Datasets">
+      <button type="button" class="region-btn" data-sample="stable_operations" data-theme="stable">
+        <span class="btn-icon">◆</span>
+        <span class="btn-title">Stable operations</span>
+        <span class="btn-desc">All zones normal</span>
+      </button>
+      <button type="button" class="region-btn" data-sample="zone_patterns" data-theme="patterns">
+        <span class="btn-icon">▲</span>
+        <span class="btn-title">Zone patterns</span>
+        <span class="btn-desc">One "why" pattern per borough</span>
+      </button>
+      <button type="button" class="region-btn" data-sample="minimal_input" data-theme="minimal">
+        <span class="btn-icon">●</span>
+        <span class="btn-title">Minimal input</span>
+        <span class="btn-desc">4 columns + messy rows</span>
+      </button>
+      <label class="region-btn upload-btn" data-theme="upload">
+        <span class="btn-icon">⇪</span>
+        <span class="btn-title">Upload CSV</span>
+        <span class="btn-desc">Your own CAD export</span>
+        <input type="file" id="csvFile" accept=".csv" />
       </label>
-      <label>Call received <input name="call_received" required placeholder="2026-10-01 08:00:00" /></label>
-      <label>Dispatch <input name="dispatch_time" required placeholder="2026-10-01 08:02:00" /></label>
-      <label>Arrival <input name="arrival_time" required placeholder="2026-10-01 08:08:00" /></label>
-      <button type="submit">Add &amp; analyze session</button>
-      <button type="button" id="btnClearSession">Clear session</button>
-    </form>
+    </div>
+
+    <h2 class="step2">2 · Review period</h2>
+    <div class="period-row">
+      <div class="tabs" role="group" aria-label="Review period">
+        <button type="button" class="tab" data-period="live">Live <small>3 h</small></button>
+        <button type="button" class="tab" data-period="daily">Daily <small>24 h</small></button>
+        <button type="button" class="tab" data-period="weekly">Weekly <small>7 d</small></button>
+        <button type="button" class="tab active" data-period="monthly">Monthly <small>30 d</small></button>
+        <button type="button" class="tab" data-period="yearly">Yearly <small>365 d</small></button>
+      </div>
+    </div>
+    <p id="regionStatus" class="region-status">Choose a dataset to begin.</p>
   </section>
 
-  <div id="warnings" class="warnings hidden"></div>
-  <div id="summary" class="summary cards hidden"></div>
-  <div id="alerts" class="panel hidden"></div>
+  <div id="resultsRoot" class="results-root hidden">
+    <div id="warnings" class="warnings hidden"></div>
 
-  <section class="panel chart-panel hidden" id="iChartPanel">
-    <h2>Individuals chart (minutes)</h2>
-    <p class="help">Points outside the red limits may indicate special-cause delay.</p>
-    <canvas id="iChart"></canvas>
-  </section>
+    <section class="panel">
+      <h2>Zone status</h2>
+      <p class="help">Each borough is compared with its own <strong>normal</strong>: 12 months of real
+        FDNY incidents (<a id="normalsLink" href="https://data.cityofnewyork.us/Public-Safety/EMS-Incident-Dispatch-Data/76xm-jjuj" target="_blank" rel="noopener">NYC Open Data</a>).
+        🟢 Normal · 🟡 Watch (more out-of-limit calls than chance, or p90 above normal with 95% confidence) ·
+        🔴 Needs attention (sustained shift, many calls above the limit, or p90 above normal with 99% confidence).
+        Click a zone for the details.</p>
+      <div id="zones" class="zone-grid"></div>
+    </section>
 
-  <section class="panel chart-panel hidden" id="mrChartPanel">
-    <h2>Moving range chart (log units)</h2>
-    <canvas id="mrChart"></canvas>
-  </section>
+    <section id="detail" class="panel detail-panel hidden" aria-live="polite">
+      <div class="detail-head">
+        <h2 id="detailTitle"></h2>
+        <button type="button" id="btnCloseDetail" class="ghost">Close ✕</button>
+      </div>
+      <div id="detailStatus" class="detail-status"></div>
+      <div id="detailCards" class="summary cards"></div>
+      <div class="detail-grid">
+        <div>
+          <h3>Statistical reason</h3>
+          <ul id="detailReasons" class="reasons"></ul>
+          <h3>This period vs the borough's normal</h3>
+          <table class="stats" id="detailStats"></table>
+        </div>
+        <div>
+          <h3>Possible contributing conditions</h3>
+          <p class="help">Compared with this data's first 14 days (NYC data has no traffic or unit
+            counts). They coincided with the response times; they are not proven causes.</p>
+          <table class="stats" id="detailConditions"></table>
+          <p id="detailPattern" class="pattern"></p>
+        </div>
+      </div>
+      <div class="chart-panel">
+        <h3>Individuals chart (minutes, log-scale limits)</h3>
+        <p class="help" id="iChartNote">Red points = calls above the upper control limit (special cause).</p>
+        <div class="chart-box"><canvas id="iChart" aria-label="Individuals control chart"></canvas></div>
+      </div>
+      <div class="chart-panel">
+        <h3>Moving range (log scale)</h3>
+        <div class="chart-box short"><canvas id="mrChart" aria-label="Moving range chart"></canvas></div>
+      </div>
+    </section>
 
-  <section class="panel chart-panel hidden" id="zoneChartPanel">
-    <h2>Zone comparison (90th percentile, minutes)</h2>
-    <p class="help">Dashed line = 8 min target (NFPA-style benchmark in SPEC).</p>
-    <canvas id="zoneChart"></canvas>
-  </section>
+    <section class="panel chart-panel" id="zoneChartPanel">
+      <h2>Zone comparison — 90th percentile</h2>
+      <p class="help">Colored bars = this period's p90 (by status) · gray bars = each borough's normal p90 (NYC, 12 months).</p>
+      <div class="chart-box"><canvas id="zoneChart" aria-label="Zone p90 comparison"></canvas></div>
+    </section>
 
-  <script src="/static/dashboard.js"></script>
+    <details class="panel">
+      <summary>Log one incident (kept for this session only)</summary>
+      <form id="incidentForm" class="grid-form">
+        <label>Zone <input name="zone" required placeholder="Bronx" /></label>
+        <label>Dispatch time <input name="dispatch_time" required placeholder="2026-09-29 23:50:00" /></label>
+        <label>On-scene time <input name="on_scene_time" required placeholder="2026-09-29 23:58:30" /></label>
+        <label>Call received (optional) <input name="call_received" placeholder="2026-09-29 23:48:40" /></label>
+        <label>Traffic (optional)
+          <select name="traffic_level"><option value=""></option><option>Low</option>
+            <option>Medium</option><option>High</option></select></label>
+        <label>Available units (optional) <input name="available_units" type="number" min="0" /></label>
+        <label>Priority (optional)
+          <select name="priority"><option value=""></option><option>High</option>
+            <option>Medium</option><option>Low</option></select></label>
+        <div class="form-buttons">
+          <button type="submit" class="primary">Add incident and update</button>
+          <a href="api/download">Download data as CSV</a>
+        </div>
+      </form>
+    </details>
+  </div>
+
+  <footer class="help foot">Method: I-MR control chart on ln(response time) per zone; limits and normal p90
+    per borough from NYC EMS Incident Dispatch Data (Oct 2025–Sep 2026, dataset 76xm-jjuj); bootstrap
+    test of the period p90 (1,000 resamples). Sample datasets are simulated from those borough distributions.
+    API docs: <a href="docs">docs</a>.</footer>
+
+  <div id="loading" class="loading hidden" aria-live="polite">
+    <div class="spinner"></div>
+    <span>Crunching SPC stats…</span>
+  </div>
+
+  <script src="static/dashboard.js"></script>
 </body>
 </html>
